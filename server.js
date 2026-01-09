@@ -1,7 +1,6 @@
 //node packages
-const axios = require("axios");
-const fs = require("fs").promises;
 const cron = require("node-cron");
+const nodemailer = require("nodemailer");
 require("dotenv").config();
 
 //globals
@@ -12,18 +11,26 @@ const FREEPBX_GQL_URL = process.env.FREEPBX_GQL_URL;
 const FREEPBX_CLIENT_ID = process.env.FREEPBX_CLIENT_ID;
 const FREEPBX_CLIENT_SECRET = process.env.FREEPBX_CLIENT_SECRET;
 const FREEPBX_SCOPE = process.env.FREEPBX_SCOPE;
-const DS_RINGGROUP = process.env.DS_RINGGROUP;
-const BACKUP_DS_RINGGROUP = process.env.BACKUP_DS_RINGGROUP;
-const DS_CALLER_ID = process.env.DS_CALLER_ID;
-const NIGHT_CRON_STRING = process.env.NIGHT_CRON_STRING;
-const DAY_CRON_STRING = process.env.DAY_CRON_STRING;
-const DS_URL = process.env.DS_URL;
-const DS_URL_TOKEN = process.env.DS_URL_TOKEN;
-const SUPERVISOR_INFO_FILE = process.env.SUPERVISOR_INFO_FILE;
+const RG1 = process.env.RG1;
+const RG2 = process.env.RG2;
+const RG3 = process.env.RG3;
+const PBX_CID = process.env.PBX_CID;
+const CRON_STRING = process.env.CRON_STRING;
+const SCHEDULE_URL = process.env.SCHEDULE_URL;
+const SCHEDULE_TOKEN = process.env.SCHEDULE_TOKEN;
 const TZ = process.env.TZ;
+const ERROR_EMAIL_ADDRESS = process.env.ERROR_EMAIL_ADDRESS;
+const SMTP_SERVER = process.env.SMTP_SERVER;
+const SMTP_PORT = process.env.SMTP_PORT;
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
 
-//oauth  stuff
+const ringgroups = [RG1, RG2, RG3];
+let currentRecipients = {};
+let hash;
 
+
+//oauth config
 const config = {
   client: {
     id: FREEPBX_CLIENT_ID,
@@ -36,78 +43,48 @@ const config = {
 };
 
 const { ClientCredentials } = require("simple-oauth2");
-
 const client = new ClientCredentials(config);
-
 const tokenParams = {
   scope: FREEPBX_SCOPE.split(" "),
 };
 
+//mailer config
+const transporter = nodemailer.createTransport({
+  host: SMTP_SERVER,
+  port: SMTP_PORT,
+  secure: SMTP_PORT == 465, // Use true for port 465, false for port 587
+  auth: {
+    user: SMTP_USER,
+    pass: SMTP_PASS,
+  },
+});
+
 //helper functions
+const handleError = async (msg) => {
+  const info = await transporter.sendMail({
+    from: '"DiALERT Error" <noreply@umassmedcon.com>',
+    to: ERROR_EMAIL_ADDRESS,
+    subject: "DiALERT Error Notification",
+    text: `An error occurred: ${msg}\n\n\nCurrent time: ${new Date().toString()}`,
+    html: `<b>An error occurred:</b> ${msg}\n<br/><br/><b>Current time:</b> ${new Date().toString()}`,
+  });
+  console.error("Error email sent: ", msg);
+  console.error("Message ID: ", info.messageId);
+}
 
-const getNightSupId = async () => {
-  const { data: nightSup } = await axios.get(`${DS_URL}?token=${DS_URL_TOKEN}`);
-  return nightSup;
-};
-
-const getSups = async () => {
-  const sups = await fs.readFile(`./${SUPERVISOR_INFO_FILE}`, "utf-8");
-  return JSON.parse(sups);
-};
-
-const generateDsNumberList = async (nightSup) => {
-  const { supervisors: sups } = await getSups();
-  let dsNumberList = "";
-  for (const sup of sups) {
-    if (sup.id == nightSup) {
-      for (num of sup.external_phone_numbers) {
-        dsNumberList += `${num}#-`;
-      }
-      for (num of sup.internal_extensions) {
-        dsNumberList += `${num}-`;
-      }
-    }
+const getCurrentSchedule = async () => {
+  const res = await fetch(`${SCHEDULE_URL}?token=${SCHEDULE_TOKEN}`, {
+    method: "GET",
+  });
+  if (!res.ok) {
+    handleError(`Failed to fetch schedule: ${res.status} ${res.statusText}\nSchedule URL: ${SCHEDULE_URL}`);
+    return;
   }
-  dsNumberList = dsNumberList.slice(0, -1);
-  return dsNumberList;
-};
 
-const generateBackupDsNumberList = async () => {
-  const { supervisors: sups } = await getSups();
-  let backupDsNumberList = "";
-  for (const sup of sups) {
-    if (sup.backup_night) {
-      for (num of sup.external_phone_numbers) {
-        backupDsNumberList += `${num}#-`;
-      }
-      for (num of sup.internal_extensions) {
-        backupDsNumberList += `${num}-`;
-      }
-    }
-  }
-  backupDsNumberList = backupDsNumberList.slice(0, -1);
-  return backupDsNumberList;
-};
+    return {hash: res.body.hash,recipients: res.body.recipients};
+}
 
-const generateDayDsNumberList = async () => {
-  const { supervisors: sups } = await getSups();
-  let dayDsNumberList = "";
-  for (const sup of sups) {
-    if (sup.day) {
-      for (num of sup.external_phone_numbers) {
-        dayDsNumberList += `${num}#-`;
-      }
-      for (num of sup.internal_extensions) {
-        dayDsNumberList += `${num}-`;
-      }
-    }
-  }
-  dayDsNumberList = dayDsNumberList.slice(0, -1);
-  return dayDsNumberList;
-};
-
-const handleDay = async () => {
-  const dsNumberList = await generateDayDsNumberList();
+const updatePbx = async (recipients) => {
   let accessToken;
   try {
     accessToken = await client.getToken(tokenParams, { json: true });
@@ -115,50 +92,42 @@ const handleDay = async () => {
   } catch (error) {
     console.log("Access token error: ", error.message);
   }
-  const res = await axios.post(
-    FREEPBX_GQL_URL,
-    {
-      query: `mutation{
+  
+  let statuses = [];
+  
+  for (let x = 0; x < 3; x++) {
+    const res = await fetch(FREEPBX_GQL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken.token.access_token}`,
+      },
+      body: JSON.stringify({
+        query: `mutation{
         updateRingGroup(input:{
-          groupNumber:${DS_RINGGROUP}
+          groupNumber:${ringgroups[x]}
           description:"Main DS"
-          extensionList:"${dsNumberList}"
+          extensionList:"${recipients[x]}"
           strategy:"ringall"
           ringTime: "60"
           changecid: "fixed"
-          fixedcid: "${DS_CALLER_ID}"
+          fixedcid: "${PBX_CID}"
         }) {
           message status
         }
       }`,
+      }),
+    });
+    statuses.push(res.status);
+  }
+  
+  const reloadRes = await fetch(FREEPBX_GQL_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken.token.access_token}`,
     },
-    { headers: { Authorization: `Bearer ${accessToken.token.access_token}` } }
-  );
-
-  const backupRes = await axios.post(
-    FREEPBX_GQL_URL,
-    {
-      query: `mutation{
-        updateRingGroup(input:{
-          groupNumber:${BACKUP_DS_RINGGROUP}
-          description:"Backup DS"
-          extensionList:"${dsNumberList}"
-          strategy:"ringall"
-          ringTime: "60"
-          callRecording: "force"
-          changecid: "fixed"
-          fixedcid: "${DS_CALLER_ID}"
-        }) {
-          message status
-        }
-      }`,
-    },
-    { headers: { Authorization: `Bearer ${accessToken.token.access_token}` } }
-  );
-
-  const reloadRes = await axios.post(
-    FREEPBX_GQL_URL,
-    {
+    body: JSON.stringify({
       query: `mutation{
         doreload(input:{}) {
           message
@@ -166,127 +135,37 @@ const handleDay = async () => {
           transaction_id
         }
       }`,
-    },
-    { headers: { Authorization: `Bearer ${accessToken.token.access_token}` } }
-  );
-
+    }),
+  });
+  
   return {
-    main: res.status,
-    backup: backupRes.status,
+    main: statuses,
     reload: reloadRes.status,
   };
 };
 
-const handleNight = async (nightSup) => {
-  let dsNumberList;
-  let backupDsNumberList;
-  if (nightSup <= 0) {
-    dsNumberList = await generateBackupDsNumberList();
-  } else {
-    dsNumberList = await generateDsNumberList(nightSup);
-    backupDsNumberList = await generateBackupDsNumberList();
+
+const run = async () => {
+  const res = await getCurrentSchedule();
+  if (res.hash === hash) {
+    console.log(`No changes in schedule at ${new Date().toString()}...`);
+    return;
   }
-  let accessToken;
-  try {
-    accessToken = await client.getToken(tokenParams, { json: true });
-    // console.log(accessToken.token.access_token);
-  } catch (error) {
-    console.log("Access token error: ", error.message);
-  }
-
-  const res = await axios.post(
-    FREEPBX_GQL_URL,
-    {
-      query: `mutation{
-        updateRingGroup(input:{
-          groupNumber:${DS_RINGGROUP}
-          description:"Main DS"
-          extensionList:"${dsNumberList}"
-          strategy:"ringall"
-          ringTime: "15"
-          callRecording: "force"
-          changecid: "fixed"
-          fixedcid: "${DS_CALLER_ID}"
-        }) {
-          message status
-        }
-      }`,
-    },
-    { headers: { Authorization: `Bearer ${accessToken.token.access_token}` } }
-  );
-
-  const backupRes = await axios.post(
-    FREEPBX_GQL_URL,
-    {
-      query: `mutation{
-        updateRingGroup(input:{
-          groupNumber:${BACKUP_DS_RINGGROUP}
-          description:"Backup DS"
-          extensionList:"${backupDsNumberList}"
-          strategy:"ringall"
-          ringTime: "60"
-          callRecording: "force"
-          changecid: "fixed"
-          fixedcid: "${DS_CALLER_ID}"
-        }) {
-          message status
-        }
-      }`,
-    },
-    { headers: { Authorization: `Bearer ${accessToken.token.access_token}` } }
-  );
-
-  const reloadRes = await axios.post(
-    FREEPBX_GQL_URL,
-    {
-      query: `mutation{
-        doreload(input:{}) {
-          message
-          status
-          transaction_id
-        }
-      }`,
-    },
-    { headers: { Authorization: `Bearer ${accessToken.token.access_token}` } }
-  );
-
-  return {
-    main: res.status,
-    backup: backupRes.status,
-    reload: reloadRes.status,
-  };
+  hash = res.hash;
+  console.log(`Schedule change detected at ${new Date().toString()}, updating PBX...`);
+  const updateRes = await updatePbx(res.recipients);
+  console.debug(`PBX updated...\n${JSON.stringify(updateRes)}`);
 };
 
 //cron scheduling
-
 cron.schedule(
-  NIGHT_CRON_STRING,
-  async () => {
-    handleNight(await getNightSupId());
-  },
-  { timezone: TZ }
-);
-
-cron.schedule(
-  DAY_CRON_STRING,
+  CRON_STRING,
   () => {
-    handleDay();
+    run();
   },
   { timezone: TZ }
 );
 
 (async () => {
-  const dayArr = DAY_CRON_STRING.split(" ");
-  const nightArr = NIGHT_CRON_STRING.split(" ");
-  const h = new Date().getHours();
-
-  //check on application start (i.e. the
-  //cronjob hasn't run yet)
-  if (h >= dayArr[1] && h < nightArr[1]) {
-    //it's daytime
-    handleDay();
-  } else {
-    //it's nighttime
-    handleNight(await getNightSupId());
-  }
+  run();
 })();
