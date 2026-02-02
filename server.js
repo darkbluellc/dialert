@@ -4,9 +4,7 @@ const nodemailer = require("nodemailer");
 require("dotenv").config();
 
 //globals
-const FREEPBX_TOKEN_URL = process.env.FREEPBX_TOKEN_URL;
 const FREEPBX_API_URL = process.env.FREEPBX_API_URL;
-const FREEPBX_AUTH_URL = process.env.FREEPBX_AUTH_URL;
 const FREEPBX_GQL_URL = process.env.FREEPBX_GQL_URL;
 const FREEPBX_CLIENT_ID = process.env.FREEPBX_CLIENT_ID;
 const FREEPBX_CLIENT_SECRET = process.env.FREEPBX_CLIENT_SECRET;
@@ -38,8 +36,12 @@ const config = {
   },
   auth: {
     tokenHost: FREEPBX_API_URL,
-    tokenPath: "token",
+    tokenPath: "token"
   },
+  http: {
+    json: "strict",
+    redirects: true
+  }
 };
 
 const { ClientCredentials } = require("simple-oauth2");
@@ -62,70 +64,78 @@ const transporter = nodemailer.createTransport({
 //helper functions
 const handleError = async (msg) => {
   const info = await transporter.sendMail({
-    from: '"DiALERT Error" <noreply@umassmedcon.com>',
+    from: '"DiALERT Error" <noreply@wemsapp.com>',
     to: ERROR_EMAIL_ADDRESS,
     subject: "DiALERT Error Notification",
     text: `An error occurred: ${msg}\n\n\nCurrent time: ${new Date().toString()}`,
     html: `<b>An error occurred:</b> ${msg}\n<br/><br/><b>Current time:</b> ${new Date().toString()}`,
   });
   console.error("Error email sent: ", msg);
-  console.error("Message ID: ", info.messageId);
+  return console.error("Message ID: ", info.messageId);
 }
 
 const getCurrentSchedule = async () => {
-  const res = await fetch(`${SCHEDULE_URL}?token=${SCHEDULE_TOKEN}`, {
+  const res = await fetch(SCHEDULE_URL, {
     method: "GET",
+    headers: {
+      "x-api-key": SCHEDULE_TOKEN,
+    },
   });
   if (!res.ok) {
-    handleError(`Failed to fetch schedule: ${res.status} ${res.statusText}\nSchedule URL: ${SCHEDULE_URL}`);
+    return handleError(`Failed to fetch schedule: ${res.status} ${res.statusText}\nSchedule URL: ${SCHEDULE_URL}`);
+  }
+  const body = await res.json();
+  if (body.error) {
+    console.error("Schedule API error: ", body.error);
     return;
   }
-
-    return {hash: res.body.hash,recipients: res.body.recipients};
+  return {hash: body.hash, recipients: body.recipients};
 }
 
 const updatePbx = async (recipients) => {
   let accessToken;
   try {
-    accessToken = await client.getToken(tokenParams, { json: true });
-    // console.log(accessToken.token.access_token);
+    accessToken = await client.getToken(tokenParams);
   } catch (error) {
     console.log("Access token error: ", error.message);
   }
   
   let statuses = [];
-  
+
   for (let x = 0; x < 3; x++) {
+    console.log(`Updating ring group ${ringgroups[x]} with recipient ${recipients[x].number}...`);
     const res = await fetch(FREEPBX_GQL_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken.token.access_token}`,
+        "Authorization": `Bearer ${accessToken.token.access_token}`
       },
       body: JSON.stringify({
         query: `mutation{
         updateRingGroup(input:{
-          groupNumber:${ringgroups[x]}
-          description:"Main DS"
-          extensionList:"${recipients[x]}"
-          strategy:"ringall"
-          ringTime: "60"
+          groupNumber: "${ringgroups[x]}"
+          description: "DiALERT Medcon ${x+1}"
+          extensionList: "${recipients[x].number}#"
+          strategy: "ringall"
+          ringTime: "${x==0 ? 30 : 20}"
           changecid: "fixed"
           fixedcid: "${PBX_CID}"
         }) {
           message status
         }
-      }`,
-      }),
+      }`
+      })
     });
+    console.log(res);
     statuses.push(res.status);
   }
-  
+
+  console.log("Reloading PBX configuration...");
   const reloadRes = await fetch(FREEPBX_GQL_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken.token.access_token}`,
+      "Authorization": `Bearer ${accessToken.token.access_token}`
     },
     body: JSON.stringify({
       query: `mutation{
@@ -154,7 +164,7 @@ const run = async () => {
   hash = res.hash;
   console.log(`Schedule change detected at ${new Date().toString()}, updating PBX...`);
   const updateRes = await updatePbx(res.recipients);
-  console.debug(`PBX updated...\n${JSON.stringify(updateRes)}`);
+  console.debug(`PBX update statuses: ${JSON.stringify(updateRes)}`);
 };
 
 //cron scheduling
