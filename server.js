@@ -101,14 +101,48 @@ const updatePbx = async (recipients) => {
   }
   
   let statuses = [];
-
-  for (let x = 0; x < 3; x++) {
+  
+  for (let x = 0; x < recipients.length; x++) {
     console.log(`Updating ring group ${ringgroups[x]} with recipient ${recipients[x].number}...`);
+    
+    const scheduledCount = recipients.length;
+    let ringTime;
+    let postAnswer = null;
+    if (scheduledCount === 2) {
+      if (x === 0) postAnswer = `ext-group,${ringgroups[1]},1`;
+      else if (x === 1) postAnswer = `app-blackhole,busy,1`;
+    } else if (scheduledCount === 3) {
+      if (x === 0) postAnswer = `ext-group,${ringgroups[1]},1`;
+      else if (x === 1) postAnswer = `ext-group,${ringgroups[2]},1`;
+      else if (x === 2) postAnswer = `app-blackhole,busy,1`;
+    }
+
+    switch (scheduledCount) {
+      case 1:
+        ringTime = 120;
+        postAnswer = `app-blackhole,busy,1`;
+        break;
+      case 2:
+        ringTime = 60;
+        if (x === 0) postAnswer = `ext-group,${ringgroups[1]},1`;
+        else if (x === 1) postAnswer = `app-blackhole,busy,1`;
+        break;
+      case 3:
+        ringTime = 60;
+        if (x === 0 || x === 1) postAnswer = `ext-group,${ringgroups[x+1]},1`;
+        else if (x === 2) postAnswer = `app-blackhole,busy,1`;
+        break;
+    }
+
+    console.debug(`ringTime for ringgroup ${ringgroups[x]}: ${ringTime}`);
+    console.debug(`postAnswer for ringgroup ${ringgroups[x]}: ${postAnswer}`);
+    
+    
     const res = await fetch(FREEPBX_GQL_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${accessToken.token.access_token}`
+        "Authorization": `Bearer ${accessToken.token.access_token}`,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
         query: `mutation{
@@ -117,7 +151,8 @@ const updatePbx = async (recipients) => {
           description: "DiALERT Medcon ${x+1}"
           extensionList: "${recipients[x].number}#"
           strategy: "ringall"
-          ringTime: "${x==0 ? 30 : 20}"
+          ringTime: "${ringTime}"
+          ${postAnswer ? `postAnswer: "${postAnswer}"` : ""}
           changecid: "fixed"
           fixedcid: "${PBX_CID}"
         }) {
@@ -126,10 +161,9 @@ const updatePbx = async (recipients) => {
       }`
       })
     });
-    console.log(res);
     statuses.push(res.status);
   }
-
+  
   console.log("Reloading PBX configuration...");
   const reloadRes = await fetch(FREEPBX_GQL_URL, {
     method: "POST",
