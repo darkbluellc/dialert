@@ -119,16 +119,16 @@ const updatePbx = async (recipients) => {
 
     switch (scheduledCount) {
       case 1:
-        ringTime = 120;
+        ringTime = 60;
         postAnswer = `app-blackhole,busy,1`;
         break;
       case 2:
-        ringTime = 60;
+        ringTime = 30;
         if (x === 0) postAnswer = `ext-group,${ringgroups[1]},1`;
         else if (x === 1) postAnswer = `app-blackhole,busy,1`;
         break;
       case 3:
-        ringTime = 60;
+        ringTime = 30;
         if (x === 0 || x === 1) postAnswer = `ext-group,${ringgroups[x+1]},1`;
         else if (x === 2) postAnswer = `app-blackhole,busy,1`;
         break;
