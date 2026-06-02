@@ -9,6 +9,8 @@ const FREEPBX_GQL_URL = process.env.FREEPBX_GQL_URL;
 const FREEPBX_CLIENT_ID = process.env.FREEPBX_CLIENT_ID;
 const FREEPBX_CLIENT_SECRET = process.env.FREEPBX_CLIENT_SECRET;
 const FREEPBX_SCOPE = process.env.FREEPBX_SCOPE;
+const RING_TIME_SINGLE = process.env.RING_TIME_SINGLE ?? 60;
+const RING_TIME_MULTI = process.env.RING_TIME_MULTI ?? 30;
 const RING_GROUP_PREFIX = process.env.RING_GROUP_PREFIX;
 const PBX_CID = process.env.PBX_CID;
 const CRON_STRING = process.env.CRON_STRING;
@@ -134,7 +136,7 @@ const updatePbx = async (groups) => {
   for (let x = 0; x < groups.length; x++) {
     const ringGroup = `${RING_GROUP_PREFIX}${x + 1}`;
     const extensionList = groups[x].recipients.map(r => r.number + "#").join("-");
-    const ringTime = groups.length === 1 ? 60 : 30;
+    const ringTime = groups.length === 1 ? RING_TIME_SINGLE : RING_TIME_MULTI;
     const nextRingGroup = `${RING_GROUP_PREFIX}${x + 2}`;
     const postAnswer = x === groups.length - 1
       ? `app-blackhole,busy,1`
