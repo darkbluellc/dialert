@@ -12,6 +12,8 @@ const FREEPBX_SCOPE = process.env.FREEPBX_SCOPE;
 const RG1 = process.env.RG1;
 const RG2 = process.env.RG2;
 const RG3 = process.env.RG3;
+const RING_TIME_SINGLE = process.env.RING_TIME_SINGLE ?? 60;
+const RING_TIME_MULTI = process.env.RING_TIME_MULTI ?? 30;
 const PBX_CID = process.env.PBX_CID;
 const CRON_STRING = process.env.CRON_STRING;
 const SCHEDULE_URL = process.env.SCHEDULE_URL;
@@ -119,16 +121,16 @@ const updatePbx = async (recipients) => {
 
     switch (scheduledCount) {
       case 1:
-        ringTime = 60;
+        ringTime = RING_TIME_SINGLE;
         postAnswer = `app-blackhole,busy,1`;
         break;
       case 2:
-        ringTime = 30;
+        ringTime = RING_TIME_MULTI;
         if (x === 0) postAnswer = `ext-group,${ringgroups[1]},1`;
         else if (x === 1) postAnswer = `app-blackhole,busy,1`;
         break;
       case 3:
-        ringTime = 30;
+        ringTime = RING_TIME_MULTI;
         if (x === 0 || x === 1) postAnswer = `ext-group,${ringgroups[x+1]},1`;
         else if (x === 2) postAnswer = `app-blackhole,busy,1`;
         break;
