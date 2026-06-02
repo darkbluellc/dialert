@@ -23,6 +23,11 @@ const SMTP_PASS = process.env.SMTP_PASS;
 
 let hash;
 
+// Startup validation
+if (!RING_GROUP_PREFIX) {
+  console.error("FATAL: RING_GROUP_PREFIX environment variable is required but not set.");
+  process.exit(1);
+}
 
 //oauth config
 const config = {
@@ -91,12 +96,26 @@ const getCurrentSchedule = async () => {
     // New API shape: groups with per-group recipients
     groups = body.groups
       .sort((a, b) => a.priority - b.priority)
-      .map((group) => ({ recipients: group.recipients }));
+      .map((group) => ({ priority: group.priority, recipients: group.recipients }));
   } else {
     // Old API shape: each recipient becomes its own group
     groups = body.recipients
       .sort((a, b) => a.priority - b.priority)
-      .map((recipient) => ({ recipients: [recipient] }));
+      .map((recipient) => ({ priority: recipient.priority, recipients: [recipient] }));
+  }
+
+  // Validate that every group has at least one recipient with a valid number
+  for (const group of groups) {
+    if (!Array.isArray(group.recipients) || group.recipients.length === 0) {
+      await handleError("Schedule contains a group with no recipients");
+      return;
+    }
+    for (const r of group.recipients) {
+      if (!r.number) {
+        await handleError(`Recipient missing phone number in group with priority ${group.priority}`);
+        return;
+      }
+    }
   }
 
   return {hash: body.hash, groups};
@@ -178,6 +197,10 @@ const updatePbx = async (groups) => {
 
 const run = async () => {
   const res = await getCurrentSchedule();
+  if (!res) {
+    console.error("Failed to fetch schedule, skipping update.");
+    return;
+  }
   if (res.hash === hash) {
     console.log(`No changes in schedule at ${new Date().toString()}...`);
     return;
