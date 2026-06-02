@@ -9,9 +9,7 @@ const FREEPBX_GQL_URL = process.env.FREEPBX_GQL_URL;
 const FREEPBX_CLIENT_ID = process.env.FREEPBX_CLIENT_ID;
 const FREEPBX_CLIENT_SECRET = process.env.FREEPBX_CLIENT_SECRET;
 const FREEPBX_SCOPE = process.env.FREEPBX_SCOPE;
-const RG1 = process.env.RG1;
-const RG2 = process.env.RG2;
-const RG3 = process.env.RG3;
+const RING_GROUP_PREFIX = process.env.RING_GROUP_PREFIX;
 const PBX_CID = process.env.PBX_CID;
 const CRON_STRING = process.env.CRON_STRING;
 const SCHEDULE_URL = process.env.SCHEDULE_URL;
@@ -23,10 +21,13 @@ const SMTP_PORT = process.env.SMTP_PORT;
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 
-const ringgroups = [RG1, RG2, RG3];
-let currentRecipients = {};
 let hash;
 
+// Startup validation
+if (!RING_GROUP_PREFIX) {
+  console.error("FATAL: RING_GROUP_PREFIX environment variable is required but not set.");
+  process.exit(1);
+}
 
 //oauth config
 const config = {
@@ -89,10 +90,38 @@ const getCurrentSchedule = async () => {
     console.error("Schedule API error: ", body.error);
     return;
   }
-  return {hash: body.hash, recipients: body.recipients};
+
+  let groups;
+  if (body.groups) {
+    // New API shape: groups with per-group recipients
+    groups = body.groups
+      .sort((a, b) => a.priority - b.priority)
+      .map((group) => ({ priority: group.priority, recipients: group.recipients }));
+  } else {
+    // Old API shape: each recipient becomes its own group
+    groups = body.recipients
+      .sort((a, b) => a.priority - b.priority)
+      .map((recipient) => ({ priority: recipient.priority, recipients: [recipient] }));
+  }
+
+  // Validate that every group has at least one recipient with a valid number
+  for (const group of groups) {
+    if (!Array.isArray(group.recipients) || group.recipients.length === 0) {
+      await handleError("Schedule contains a group with no recipients");
+      return;
+    }
+    for (const r of group.recipients) {
+      if (!r.number) {
+        await handleError(`Recipient missing phone number in group with priority ${group.priority}`);
+        return;
+      }
+    }
+  }
+
+  return {hash: body.hash, groups};
 }
 
-const updatePbx = async (recipients) => {
+const updatePbx = async (groups) => {
   let accessToken;
   try {
     accessToken = await client.getToken(tokenParams);
@@ -102,41 +131,18 @@ const updatePbx = async (recipients) => {
   
   let statuses = [];
   
-  for (let x = 0; x < recipients.length; x++) {
-    console.log(`Updating ring group ${ringgroups[x]} with recipient ${recipients[x].number}...`);
-    
-    const scheduledCount = recipients.length;
-    let ringTime;
-    let postAnswer = null;
-    if (scheduledCount === 2) {
-      if (x === 0) postAnswer = `ext-group,${ringgroups[1]},1`;
-      else if (x === 1) postAnswer = `app-blackhole,busy,1`;
-    } else if (scheduledCount === 3) {
-      if (x === 0) postAnswer = `ext-group,${ringgroups[1]},1`;
-      else if (x === 1) postAnswer = `ext-group,${ringgroups[2]},1`;
-      else if (x === 2) postAnswer = `app-blackhole,busy,1`;
-    }
+  for (let x = 0; x < groups.length; x++) {
+    const ringGroup = `${RING_GROUP_PREFIX}${x + 1}`;
+    const extensionList = groups[x].recipients.map(r => r.number + "#").join("-");
+    const ringTime = groups.length === 1 ? 60 : 30;
+    const nextRingGroup = `${RING_GROUP_PREFIX}${x + 2}`;
+    const postAnswer = x === groups.length - 1
+      ? `app-blackhole,busy,1`
+      : `ext-group,${nextRingGroup},1`;
 
-    switch (scheduledCount) {
-      case 1:
-        ringTime = 60;
-        postAnswer = `app-blackhole,busy,1`;
-        break;
-      case 2:
-        ringTime = 30;
-        if (x === 0) postAnswer = `ext-group,${ringgroups[1]},1`;
-        else if (x === 1) postAnswer = `app-blackhole,busy,1`;
-        break;
-      case 3:
-        ringTime = 30;
-        if (x === 0 || x === 1) postAnswer = `ext-group,${ringgroups[x+1]},1`;
-        else if (x === 2) postAnswer = `app-blackhole,busy,1`;
-        break;
-    }
-
-    console.debug(`ringTime for ringgroup ${ringgroups[x]}: ${ringTime}`);
-    console.debug(`postAnswer for ringgroup ${ringgroups[x]}: ${postAnswer}`);
-    
+    console.log(`Updating ring group ${ringGroup} with extensions ${extensionList}...`);
+    console.debug(`ringTime for ringgroup ${ringGroup}: ${ringTime}`);
+    console.debug(`postAnswer for ringgroup ${ringGroup}: ${postAnswer}`);
     
     const res = await fetch(FREEPBX_GQL_URL, {
       method: "POST",
@@ -147,12 +153,12 @@ const updatePbx = async (recipients) => {
       body: JSON.stringify({
         query: `mutation{
         updateRingGroup(input:{
-          groupNumber: "${ringgroups[x]}"
+          groupNumber: "${ringGroup}"
           description: "DiALERT Medcon ${x+1}"
-          extensionList: "${recipients[x].number}#"
+          extensionList: "${extensionList}"
           strategy: "ringall"
           ringTime: "${ringTime}"
-          ${postAnswer ? `postAnswer: "${postAnswer}"` : ""}
+          postAnswer: "${postAnswer}"
           changecid: "fixed"
           fixedcid: "${PBX_CID}"
         }) {
@@ -191,13 +197,17 @@ const updatePbx = async (recipients) => {
 
 const run = async () => {
   const res = await getCurrentSchedule();
+  if (!res) {
+    console.error("Failed to fetch schedule, skipping update.");
+    return;
+  }
   if (res.hash === hash) {
     console.log(`No changes in schedule at ${new Date().toString()}...`);
     return;
   }
   hash = res.hash;
   console.log(`Schedule change detected at ${new Date().toString()}, updating PBX...`);
-  const updateRes = await updatePbx(res.recipients);
+  const updateRes = await updatePbx(res.groups);
   console.debug(`PBX update statuses: ${JSON.stringify(updateRes)}`);
 };
 
