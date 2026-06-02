@@ -22,10 +22,12 @@ const SMTP_SERVER = process.env.SMTP_SERVER;
 const SMTP_PORT = process.env.SMTP_PORT;
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
+const ERROR_EMAIL_COOLDOWN_MS = 15 * 60 * 1000;
 
 const ringgroups = [RG1, RG2, RG3];
 let currentRecipients = {};
 let hash;
+let lastErrorEmailSentAt;
 
 
 //oauth config
@@ -63,6 +65,11 @@ const transporter = nodemailer.createTransport({
 
 //helper functions
 const handleError = async (msg) => {
+  const now = Date.now();
+  if (lastErrorEmailSentAt && now - lastErrorEmailSentAt < ERROR_EMAIL_COOLDOWN_MS) {
+    return console.error("Error email suppressed due to cooldown: ", msg);
+  }
+
   const info = await transporter.sendMail({
     from: '"DiALERT Error" <noreply@wemsapp.com>',
     to: ERROR_EMAIL_ADDRESS,
@@ -70,6 +77,7 @@ const handleError = async (msg) => {
     text: `An error occurred: ${msg}\n\n\nCurrent time: ${new Date().toString()}`,
     html: `<b>An error occurred:</b> ${msg}\n<br/><br/><b>Current time:</b> ${new Date().toString()}`,
   });
+  lastErrorEmailSentAt = now;
   console.error("Error email sent: ", msg);
   return console.error("Message ID: ", info.messageId);
 }
