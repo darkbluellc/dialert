@@ -1,6 +1,9 @@
 # Production compose (used by Coolify). Postgres runs elsewhere and is reached
-# via the DATABASE_URL env var. Both services use the same prebuilt image from
-# GHCR; only the command differs.
+# via the DATABASE_URL env var.
+#
+# A single `web` container serves the UI AND runs the polling scheduler (the
+# entrypoint starts it in the background), so no separate worker is needed. The
+# entrypoint also runs `prisma migrate deploy` before starting.
 #
 # Coolify injects environment variables itself; for a plain `docker compose up`
 # provide them via a .env file next to this one (see .env.example).
@@ -9,7 +12,6 @@ services:
   web:
     image: ghcr.io/darkbluellc/dialert:latest
     restart: always
-    # The image entrypoint runs `prisma migrate deploy` before starting.
     env_file:
       - .env
     ports:
@@ -21,15 +23,17 @@ services:
       retries: 5
       start_period: 40s
 
-  worker:
-    image: ghcr.io/darkbluellc/dialert:latest
-    restart: always
-    command: npm run worker
-    # Web already applied migrations; skip here to avoid a startup race.
-    environment:
-      RUN_MIGRATIONS: "false"
-    env_file:
-      - .env
-    depends_on:
-      web:
-        condition: service_healthy
+  # Optional: run polling in a dedicated container instead of in-process.
+  # If you enable this, set RUN_SCHEDULER=false on the web service above.
+  #
+  # worker:
+  #   image: ghcr.io/darkbluellc/dialert:latest
+  #   restart: always
+  #   command: npm run worker
+  #   environment:
+  #     RUN_MIGRATIONS: "false"
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     web:
+  #       condition: service_healthy
