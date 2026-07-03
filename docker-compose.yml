@@ -9,8 +9,7 @@ services:
   web:
     image: ghcr.io/darkbluellc/dialert:latest
     restart: always
-    # Apply migrations, then start the web server.
-    command: sh -c "npx prisma migrate deploy && npm run start"
+    # The image entrypoint runs `prisma migrate deploy` before starting.
     env_file:
       - .env
     ports:
@@ -20,12 +19,15 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 40s
 
   worker:
     image: ghcr.io/darkbluellc/dialert:latest
     restart: always
     command: npm run worker
+    # Web already applied migrations; skip here to avoid a startup race.
+    environment:
+      RUN_MIGRATIONS: "false"
     env_file:
       - .env
     depends_on:
