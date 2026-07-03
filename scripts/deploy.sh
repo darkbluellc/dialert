@@ -2,6 +2,13 @@
 #
 # Build the DiALERT image, push it to GHCR, and trigger a Coolify deploy.
 #
+# Prerequisite: you must already be logged in to GHCR. This is a one-time step:
+#
+#   echo "$GHCR_PAT" | docker login ghcr.io -u <github-username> --password-stdin
+#
+# where GHCR_PAT is a GitHub personal access token with the write:packages
+# scope. The login is cached by Docker, so this script does not handle it.
+#
 # Secrets live ONLY in scripts/deploy.env (gitignored), next to this script.
 # Copy scripts/deploy.env.example to scripts/deploy.env and fill it in first.
 #
@@ -21,21 +28,17 @@ if [[ ! -f "$SECRETS_FILE" ]]; then
   exit 1
 fi
 
-# Load deploy secrets (GHCR_USER, GHCR_PAT, COOLIFY_URL, COOLIFY_TOKEN, COOLIFY_UUID).
+# Load deploy secrets (COOLIFY_URL, COOLIFY_TOKEN, COOLIFY_UUID).
 set -a
 # shellcheck disable=SC1090
 source "$SECRETS_FILE"
 set +a
 
-: "${GHCR_USER:?Set GHCR_USER in scripts/deploy.env}"
-: "${GHCR_PAT:?Set GHCR_PAT in scripts/deploy.env}"
-
 # Tag with the current git short SHA (fallback to a timestamp) plus :latest.
 TAG="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)"
 
-echo "==> Logging in to GHCR as $GHCR_USER"
-echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-
+# Assumes you are already logged in to GHCR (see the header comment). The push
+# below will fail with an auth error if not.
 echo "==> Building $IMAGE:$TAG ($PLATFORM)"
 docker buildx build \
   --platform "$PLATFORM" \
