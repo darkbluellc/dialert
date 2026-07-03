@@ -1,0 +1,22 @@
+# Local development convenience: spins up a Postgres for testing DiALERT.
+# The app itself is run with `npm run dev` + `npm run worker` on the host, or
+# you can build the image locally. Not used in production (Postgres is external).
+#
+#   docker compose -f docker-compose.local.yml up -d
+#   DATABASE_URL=postgresql://dialert:dialert@localhost:5432/dialert npm run migrate:dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dialert
+      POSTGRES_PASSWORD: dialert
+      POSTGRES_DB: dialert
+    ports:
+      - "5432:5432"
+    volumes:
+      - dialert_pgdata:/var/lib/postgresql/data
+
+volumes:
+  dialert_pgdata:

@@ -1,0 +1,84 @@
+// DiALERT v2 schema.
+// A "System" is one FreePBX ring-group chain plus the scheduling data source
+// that drives its membership. All systems currently share one FreePBX (creds
+// come from env), but per-system PBX overrides are here for future multi-PBX.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model System {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String?
+  enabled     Boolean @default(true)
+
+  // --- Scheduling data source (per system) ---
+  scheduleUrl        String
+  scheduleToken      String? // stored encrypted (see lib/crypto.ts)
+  scheduleHeaderName String  @default("x-api-key")
+
+  // --- Ring-group chain config ---
+  ringGroupPrefix     String // e.g. "100" -> groups 1001, 1002, ...
+  callerId            String? // fixed outbound CID for the ring groups
+  ringStrategy        String  @default("ringall")
+  ringTimeSingle      Int     @default(60) // ring time when only one tier
+  ringTimeMulti       Int     @default(30) // ring time per tier when chained
+  descriptionTemplate String  @default("DiALERT {name} {n}")
+
+  // --- Final (no-answer) destination for the last tier ---
+  // type: terminate | ring_group | extension | voicemail | external
+  finalDestType    String  @default("terminate")
+  finalDestValue   String? // target: ring group number / extension / number / vm box
+  finalDestSubtype String? // terminate: hangup|busy|congestion|ring ; voicemail: box mode
+
+  // --- Polling ---
+  cronString String @default("* * * * *")
+  timezone   String @default("America/New_York")
+
+  // --- Optional per-system FreePBX overrides (default: env) ---
+  pbxApiUrl       String?
+  pbxGqlUrl       String?
+  pbxClientId     String?
+  pbxClientSecret String? // stored encrypted
+  pbxScope        String?
+
+  // --- Push trigger auth (for POST /api/systems/:id/trigger) ---
+  triggerToken String? // stored encrypted
+
+  // --- Status (denormalized for fast dashboard rendering) ---
+  lastHash      String?
+  lastAppliedAt DateTime?
+  lastPolledAt  DateTime?
+  lastStatus    String? // ok | skipped | error
+  lastError     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events ApplyEvent[]
+
+  @@map("systems")
+}
+
+model ApplyEvent {
+  id       String @id @default(cuid())
+  systemId String
+  system   System @relation(fields: [systemId], references: [id], onDelete: Cascade)
+
+  trigger String // cron | manual | push
+  status  String // ok | skipped | error
+  message String?
+  hash    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([systemId, createdAt])
+  @@map("apply_events")
+}
