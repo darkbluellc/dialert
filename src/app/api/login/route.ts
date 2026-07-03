@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import crypto from "node:crypto";
 import { env } from "@/lib/env";
 import { SESSION_COOKIE, createSessionToken, sessionCookieOptions } from "@/lib/auth";
+import { externalUrl } from "@/lib/url";
 
 // Constant-time password comparison to avoid timing side channels.
 function passwordMatches(input: string, expected: string): boolean {
@@ -23,13 +24,13 @@ export async function POST(req: NextRequest) {
   const target = next.startsWith("/") ? next : "/";
 
   if (!passwordMatches(password, env.appPassword())) {
-    const url = new URL("/login", req.url);
+    const url = externalUrl(req, "/login");
     url.searchParams.set("error", "1");
     if (target !== "/") url.searchParams.set("next", target);
     return NextResponse.redirect(url, { status: 303 });
   }
 
-  const res = NextResponse.redirect(new URL(target, req.url), { status: 303 });
+  const res = NextResponse.redirect(externalUrl(req, target), { status: 303 });
   res.cookies.set(SESSION_COOKIE, await createSessionToken(), sessionCookieOptions);
   return res;
 }

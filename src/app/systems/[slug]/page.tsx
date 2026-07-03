@@ -38,8 +38,14 @@ export default async function SystemPage({
 
   const status = !system.enabled ? "disabled" : (system.lastStatus ?? "never");
   const triggerToken = maybeDecrypt(system.triggerToken);
-  const host = (await headers()).get("host") ?? "your-app-host";
-  const proto = process.env.NODE_ENV === "production" ? "https" : "http";
+  const hdrs = await headers();
+  const host =
+    hdrs.get("x-forwarded-host")?.split(",")[0]?.trim() ||
+    hdrs.get("host") ||
+    "your-app-host";
+  const proto =
+    hdrs.get("x-forwarded-proto")?.split(",")[0]?.trim() ||
+    (process.env.NODE_ENV === "production" ? "https" : "http");
   const triggerUrl = `${proto}://${host}/api/systems/${system.id}/trigger`;
 
   return (

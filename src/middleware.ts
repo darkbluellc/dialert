@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { externalUrl } from "@/lib/url";
 
 // Protect every route except the login page, the login API, and static assets.
 const PUBLIC_PATHS = ["/login", "/api/login"];
@@ -25,7 +26,7 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const loginUrl = new URL("/login", req.url);
+  const loginUrl = externalUrl(req, "/login");
   loginUrl.searchParams.set("next", pathname);
   return NextResponse.redirect(loginUrl);
 }
