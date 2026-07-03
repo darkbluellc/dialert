@@ -32,6 +32,11 @@ model System {
   ringTimeMulti       Int     @default(30) // ring time per tier when chained
   descriptionTemplate String  @default("DiALERT {name} {n}")
 
+  // Optional per-tier ring time overrides, keyed by tier number (the ring group
+  // suffix), e.g. {"1": 25, "3": 45}. Tiers without an entry use the single/
+  // multi defaults above. Null/empty means no overrides.
+  ringTimeOverrides Json?
+
   // When true, ring group numbers follow the tier's priority (priority 2 ->
   // <prefix>2) so numbering stays stable: an empty/absent priority is skipped
   // and left untouched (priority 1 chains straight to priority 3). When false,

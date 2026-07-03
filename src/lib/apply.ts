@@ -46,11 +46,17 @@ export function buildUpdates(system: System, groups: ScheduleGroup[]): RingGroup
   const tierNumber = (group: ScheduleGroup, i: number): number =>
     system.maintainStructure ? group.priority : i + 1;
 
+  // Optional per-tier ring time overrides, keyed by tier number.
+  const overrides = (system.ringTimeOverrides ?? {}) as Record<string, number>;
+  const defaultRingTime =
+    populated.length === 1 ? system.ringTimeSingle : system.ringTimeMulti;
+
   return populated.map((group, i) => {
     const num = tierNumber(group, i);
     const groupNumber = `${system.ringGroupPrefix}${num}`;
     const extensionList = group.recipients.map((r) => `${r.number}#`).join("-");
-    const ringTime = populated.length === 1 ? system.ringTimeSingle : system.ringTimeMulti;
+    const override = overrides[String(num)];
+    const ringTime = typeof override === "number" ? override : defaultRingTime;
 
     const isLast = i === populated.length - 1;
     const postAnswer = isLast

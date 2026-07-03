@@ -109,6 +109,15 @@ export default async function SystemPage({
           <Row label="Ring time (single / chained)">
             {system.ringTimeSingle}s / {system.ringTimeMulti}s
           </Row>
+          <Row label="Per-tier ring times">
+            {(() => {
+              const o = (system.ringTimeOverrides ?? {}) as Record<string, number>;
+              const entries = Object.entries(o).sort((a, b) => Number(a[0]) - Number(b[0]));
+              return entries.length === 0
+                ? "—"
+                : entries.map(([t, s]) => `tier ${t} → ${s}s`).join(", ");
+            })()}
+          </Row>
           <Row label="Caller ID">{system.callerId || "—"}</Row>
           <Row label="No-answer destination">
             {describeDestination({

@@ -30,6 +30,10 @@ export const systemSchema = z
     ringTimeMulti: z.coerce.number().int().min(1).max(600).default(30),
     descriptionTemplate: z.string().trim().min(1).default("DiALERT {name} {n}"),
     maintainStructure: z.boolean().default(false),
+    // Per-tier ring time overrides keyed by tier number.
+    ringTimeOverrides: z
+      .record(z.string(), z.coerce.number().int().min(1).max(600))
+      .default({}),
 
     finalDestType: z
       .enum(["terminate", "ring_group", "extension", "voicemail", "external"])
@@ -56,12 +60,31 @@ export const systemSchema = z
         message: "A target value is required for this destination type",
       });
     }
+    // Override tier keys must be positive integers.
+    for (const key of Object.keys(data.ringTimeOverrides)) {
+      if (!/^\d+$/.test(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["ringTimeOverrides"],
+          message: `Invalid tier number "${key}" in ring time overrides`,
+        });
+      }
+    }
   });
 
 export type SystemInput = z.infer<typeof systemSchema>;
 
 /** Parse a browser FormData object into a typed, validated system input. */
 export function parseSystemForm(form: FormData) {
+  // Paired arrays of tier number / seconds from the dynamic overrides editor.
+  const tiers = form.getAll("overrideTier").map((v) => String(v).trim());
+  const seconds = form.getAll("overrideSeconds").map((v) => String(v).trim());
+  const ringTimeOverrides: Record<string, string> = {};
+  for (let i = 0; i < tiers.length; i++) {
+    if (!tiers[i] && !seconds[i]) continue; // skip fully-empty rows
+    ringTimeOverrides[tiers[i]] = seconds[i];
+  }
+
   const raw = {
     name: form.get("name"),
     slug: form.get("slug"),
@@ -77,6 +100,7 @@ export function parseSystemForm(form: FormData) {
     ringTimeMulti: form.get("ringTimeMulti") ?? 30,
     descriptionTemplate: form.get("descriptionTemplate") || "DiALERT {name} {n}",
     maintainStructure: form.get("maintainStructure") === "on" || form.get("maintainStructure") === "true",
+    ringTimeOverrides,
     finalDestType: form.get("finalDestType") || "terminate",
     finalDestValue: form.get("finalDestValue") ?? "",
     finalDestSubtype: form.get("finalDestSubtype") ?? "",

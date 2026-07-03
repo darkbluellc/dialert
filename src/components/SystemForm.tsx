@@ -26,6 +26,7 @@ export interface SystemFormValues {
   ringTimeMulti: number;
   descriptionTemplate: string;
   maintainStructure: boolean;
+  ringTimeOverrides: { tier: string; seconds: string }[];
   finalDestType: FinalDestType;
   finalDestValue: string;
   finalDestSubtype: string;
@@ -75,7 +76,15 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
   const isEdit = Boolean(values?.id);
   const [state, formAction] = useActionState<FormState, FormData>(saveSystemAction, {});
   const [destType, setDestType] = useState<FinalDestType>(values?.finalDestType ?? "terminate");
+  const [overrides, setOverrides] = useState<{ tier: string; seconds: string }[]>(
+    values?.ringTimeOverrides ?? [],
+  );
   const fe = state.fieldErrors ?? {};
+
+  const setRow = (i: number, patch: Partial<{ tier: string; seconds: string }>) =>
+    setOverrides((rows) => rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const addRow = () => setOverrides((rows) => [...rows, { tier: "", seconds: "" }]);
+  const removeRow = (i: number) => setOverrides((rows) => rows.filter((_, j) => j !== i));
 
   return (
     <form action={formAction} className="space-y-6">
@@ -174,6 +183,54 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
           <Field label="Ring time — chained (s)" error={fe.ringTimeMulti}>
             <input className="input" name="ringTimeMulti" type="number" min={1} defaultValue={values?.ringTimeMulti ?? 30} />
           </Field>
+        </div>
+
+        <div>
+          <span className="label">Per-tier ring time overrides</span>
+          <p className="hint mt-0 mb-2">
+            Override the ring time for specific tier numbers (the ring group suffix). Tiers without
+            an override use the values above.
+          </p>
+          {fe.ringTimeOverrides && <p className="hint text-red-600 mb-2">{fe.ringTimeOverrides}</p>}
+          {overrides.length > 0 && (
+            <div className="space-y-2">
+              {overrides.map((row, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    className="input w-28"
+                    name="overrideTier"
+                    type="number"
+                    min={1}
+                    placeholder="Tier #"
+                    value={row.tier}
+                    onChange={(e) => setRow(i, { tier: e.target.value })}
+                  />
+                  <span className="text-sm text-slate-500">rings for</span>
+                  <input
+                    className="input w-28"
+                    name="overrideSeconds"
+                    type="number"
+                    min={1}
+                    max={600}
+                    placeholder="Seconds"
+                    value={row.seconds}
+                    onChange={(e) => setRow(i, { seconds: e.target.value })}
+                  />
+                  <span className="text-sm text-slate-500">s</span>
+                  <button
+                    type="button"
+                    className="text-sm text-red-600 hover:underline"
+                    onClick={() => removeRow(i)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button type="button" className="btn-secondary mt-2" onClick={addRow}>
+            + Add tier override
+          </button>
         </div>
         <Field
           label="Description template"

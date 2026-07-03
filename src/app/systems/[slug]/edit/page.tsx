@@ -31,6 +31,11 @@ export default async function EditSystemPage({
     ringTimeMulti: system.ringTimeMulti,
     descriptionTemplate: system.descriptionTemplate,
     maintainStructure: system.maintainStructure,
+    ringTimeOverrides: Object.entries(
+      (system.ringTimeOverrides ?? {}) as Record<string, number>,
+    )
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([tier, seconds]) => ({ tier, seconds: String(seconds) })),
     finalDestType: system.finalDestType as FinalDestType,
     finalDestValue: system.finalDestValue ?? "",
     finalDestSubtype: system.finalDestSubtype ?? "",
