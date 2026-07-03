@@ -23,20 +23,32 @@ export interface RingGroupUpdate {
   callerId?: string | null;
 }
 
+// FreePBX exposes its GraphQL endpoint at "<apiBase>/gql" (the token endpoint is
+// "<apiBase>/token"). Derive the GQL URL from the API URL when it isn't set
+// explicitly, so FREEPBX_GQL_URL is optional.
+function deriveGqlUrl(apiUrl: string): string {
+  if (!apiUrl) return "";
+  return `${apiUrl.replace(/\/+$/, "")}/gql`;
+}
+
 export function resolveCreds(overrides?: Partial<FreepbxCreds>): FreepbxCreds {
   const base = env.freepbx();
+  const apiUrl = overrides?.apiUrl || base.apiUrl;
   const creds: FreepbxCreds = {
-    apiUrl: overrides?.apiUrl || base.apiUrl,
-    gqlUrl: overrides?.gqlUrl || base.gqlUrl,
+    apiUrl,
+    gqlUrl: overrides?.gqlUrl || base.gqlUrl || deriveGqlUrl(apiUrl),
     clientId: overrides?.clientId || base.clientId,
     clientSecret: overrides?.clientSecret || base.clientSecret,
     scope: overrides?.scope || base.scope,
   };
-  const missing = Object.entries(creds)
-    .filter(([, v]) => !v)
-    .map(([k]) => k);
+  // gqlUrl is derived from apiUrl, so it's not independently required.
+  const required: (keyof FreepbxCreds)[] = ["apiUrl", "clientId", "clientSecret", "scope"];
+  const missing = required.filter((k) => !creds[k]);
   if (missing.length) {
-    throw new Error(`FreePBX credentials incomplete; missing: ${missing.join(", ")}`);
+    throw new Error(
+      `FreePBX credentials incomplete; missing: ${missing.join(", ")}. ` +
+        `Set FREEPBX_API_URL, FREEPBX_CLIENT_ID, and FREEPBX_CLIENT_SECRET in the environment.`,
+    );
   }
   return creds;
 }

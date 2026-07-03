@@ -21,6 +21,7 @@ export const env = {
   encryptionKey: () => required("ENCRYPTION_KEY"),
 
   // Shared FreePBX credentials (per-system overrides live in the DB).
+  // gqlUrl is optional; when unset it's derived from apiUrl ("<apiUrl>/gql").
   freepbx: () => ({
     apiUrl: optional("FREEPBX_API_URL"),
     gqlUrl: optional("FREEPBX_GQL_URL"),
