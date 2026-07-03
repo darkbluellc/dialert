@@ -74,7 +74,7 @@ typings/
 .env*.local
 
 # Deploy-only secrets (used exclusively by scripts/deploy.sh)
-.deploy.env
+scripts/deploy.env
 
 # Next.js generated types
 next-env.d.ts

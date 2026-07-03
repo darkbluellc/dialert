@@ -84,12 +84,12 @@ curl -X POST https://your-app-host/api/systems/<id>/trigger \
 The app is deployed as a Docker image on [Coolify](https://coolify.io), with Postgres as a separate service. Deploys are run **locally** from your machine — there is no CI.
 
 - [docker-compose.yml](docker-compose.yml) defines the `web` and `worker` services from the GHCR image. `web` runs `prisma migrate deploy` on start.
-- `scripts/deploy.sh` builds the image for `linux/amd64` (the Coolify host's architecture), pushes to GHCR, and triggers a Coolify redeploy. Its secrets live only in `.deploy.env` (gitignored — never read by the running app):
+- `scripts/deploy.sh` builds the image for `linux/amd64` (the Coolify host's architecture), pushes to GHCR, and triggers a Coolify redeploy. Its secrets live only in `scripts/deploy.env` (gitignored — never read by the running app):
 
   ```bash
-  cp .deploy.env.example .deploy.env   # fill in GHCR + Coolify creds
-  npm run deploy                       # build + push + deploy
-  ./scripts/deploy.sh --no-deploy      # build + push only
+  cp scripts/deploy.env.example scripts/deploy.env   # fill in GHCR + Coolify creds
+  npm run deploy                                      # build + push + deploy
+  ./scripts/deploy.sh --no-deploy                     # build + push only
   ```
 
   The build platform defaults to `linux/amd64`; override with `PLATFORM=… npm run deploy` if needed.
