@@ -102,6 +102,9 @@ export default async function SystemPage({
             <span className="break-all font-mono text-xs">{system.scheduleUrl}</span>
           </Row>
           <Row label="Ring group prefix">{system.ringGroupPrefix}</Row>
+          <Row label="Tier numbering">
+            {system.maintainStructure ? "By priority (structure maintained)" : "Sequential (collapses)"}
+          </Row>
           <Row label="Ring strategy">{system.ringStrategy}</Row>
           <Row label="Ring time (single / chained)">
             {system.ringTimeSingle}s / {system.ringTimeMulti}s

@@ -25,24 +25,41 @@ function finalDestOf(system: System): FinalDestination {
 
 /**
  * Build the ordered ring-group updates for a system from a normalized schedule.
- * Intermediate tiers chain to the next tier; the last tier goes to the
- * system's configured final destination.
+ * Only tiers that have members are written; empty tiers are skipped (left
+ * untouched on the PBX). Each written tier chains to the next written tier; the
+ * last goes to the system's configured final destination.
+ *
+ * Tier numbering depends on `maintainStructure`:
+ *   - false (default): sequential by position (<prefix>1, <prefix>2, ...), so
+ *     tiers collapse to the lowest numbers when some are empty.
+ *   - true: the tier's priority sets its number (<prefix><priority>), so
+ *     numbering stays stable and an empty priority is bypassed (priority 1
+ *     chains straight to priority 3).
  */
 export function buildUpdates(system: System, groups: ScheduleGroup[]): RingGroupUpdate[] {
   const finalPostAnswer = toPostAnswer(finalDestOf(system));
 
-  return groups.map((group, i) => {
-    const groupNumber = `${system.ringGroupPrefix}${i + 1}`;
+  // Skip tiers with no members — they are left untouched on the PBX.
+  const populated = groups.filter((g) => g.recipients.length > 0);
+
+  // The number assigned to a populated tier at position `i`.
+  const tierNumber = (group: ScheduleGroup, i: number): number =>
+    system.maintainStructure ? group.priority : i + 1;
+
+  return populated.map((group, i) => {
+    const num = tierNumber(group, i);
+    const groupNumber = `${system.ringGroupPrefix}${num}`;
     const extensionList = group.recipients.map((r) => `${r.number}#`).join("-");
-    const ringTime = groups.length === 1 ? system.ringTimeSingle : system.ringTimeMulti;
-    const isLast = i === groups.length - 1;
+    const ringTime = populated.length === 1 ? system.ringTimeSingle : system.ringTimeMulti;
+
+    const isLast = i === populated.length - 1;
     const postAnswer = isLast
       ? finalPostAnswer
-      : `ext-group,${system.ringGroupPrefix}${i + 2},1`;
+      : `ext-group,${system.ringGroupPrefix}${tierNumber(populated[i + 1], i + 1)},1`;
 
     const description = system.descriptionTemplate
       .replace(/\{name\}/g, system.name)
-      .replace(/\{n\}/g, String(i + 1));
+      .replace(/\{n\}/g, String(num));
 
     return {
       groupNumber,

@@ -30,6 +30,7 @@ export default async function EditSystemPage({
     ringTimeSingle: system.ringTimeSingle,
     ringTimeMulti: system.ringTimeMulti,
     descriptionTemplate: system.descriptionTemplate,
+    maintainStructure: system.maintainStructure,
     finalDestType: system.finalDestType as FinalDestType,
     finalDestValue: system.finalDestValue ?? "",
     finalDestSubtype: system.finalDestSubtype ?? "",

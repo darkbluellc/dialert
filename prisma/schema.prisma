@@ -32,6 +32,12 @@ model System {
   ringTimeMulti       Int     @default(30) // ring time per tier when chained
   descriptionTemplate String  @default("DiALERT {name} {n}")
 
+  // When true, ring group numbers follow the tier's priority (priority 2 ->
+  // <prefix>2) so numbering stays stable: an empty/absent priority is skipped
+  // and left untouched (priority 1 chains straight to priority 3). When false,
+  // tiers are numbered sequentially and collapse to the lowest numbers.
+  maintainStructure Boolean @default(false)
+
   // --- Final (no-answer) destination for the last tier ---
   // type: terminate | ring_group | extension | voicemail | external
   finalDestType    String  @default("terminate")

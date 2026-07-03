@@ -25,6 +25,7 @@ export interface SystemFormValues {
   ringTimeSingle: number;
   ringTimeMulti: number;
   descriptionTemplate: string;
+  maintainStructure: boolean;
   finalDestType: FinalDestType;
   finalDestValue: string;
   finalDestSubtype: string;
@@ -185,6 +186,22 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
             defaultValue={values?.descriptionTemplate ?? "DiALERT {name} {n}"}
           />
         </Field>
+        <label className="flex items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            name="maintainStructure"
+            className="mt-0.5"
+            defaultChecked={values?.maintainStructure ?? false}
+          />
+          <span>
+            Maintain ring-group structure
+            <span className="hint mt-0 block">
+              Number ring groups by tier priority (priority 2 → &lt;prefix&gt;2). Empty tiers are
+              skipped and left untouched, so priority 1 chains straight to priority 3 instead of
+              collapsing to the lowest numbers.
+            </span>
+          </span>
+        </label>
       </section>
 
       <section className="card space-y-4">

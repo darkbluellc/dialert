@@ -75,14 +75,16 @@ export async function fetchSchedule(params: {
     throw new ScheduleError("Schedule response contained neither `groups` nor `recipients`");
   }
 
-  // Validate every tier has at least one recipient with a phone number.
+  // A tier may be empty (that tier is simply skipped when building the chain),
+  // but any recipient present must have a phone number, and at least one tier
+  // overall must have members.
   if (groups.length === 0) {
     throw new ScheduleError("Schedule contained no groups");
   }
   for (const group of groups) {
-    if (!Array.isArray(group.recipients) || group.recipients.length === 0) {
+    if (!Array.isArray(group.recipients)) {
       throw new ScheduleError(
-        `Schedule contains a group (priority ${group.priority}) with no recipients`,
+        `Schedule group (priority ${group.priority}) has an invalid recipients value`,
       );
     }
     for (const r of group.recipients) {
@@ -92,6 +94,9 @@ export async function fetchSchedule(params: {
         );
       }
     }
+  }
+  if (!groups.some((g) => g.recipients.length > 0)) {
+    throw new ScheduleError("Schedule has no tiers with members");
   }
 
   // If the API doesn't provide a hash, derive one from the normalized content

@@ -45,6 +45,7 @@ export async function saveSystemAction(
     ringTimeSingle: d.ringTimeSingle,
     ringTimeMulti: d.ringTimeMulti,
     descriptionTemplate: d.descriptionTemplate,
+    maintainStructure: d.maintainStructure,
     finalDestType: d.finalDestType,
     finalDestValue: d.finalDestValue || null,
     finalDestSubtype: d.finalDestSubtype || null,
