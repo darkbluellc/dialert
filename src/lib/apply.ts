@@ -119,11 +119,13 @@ export async function applySystem(
     });
 
     if (!opts.force && schedule.hash === system.lastHash) {
+      // No change — just record that we polled. We deliberately do NOT write an
+      // ApplyEvent here; unchanged polls happen every cron tick and would swamp
+      // the audit log. lastPolledAt/lastStatus reflect that polling is healthy.
       await prisma.system.update({
         where: { id: system.id },
         data: { lastPolledAt: now, lastStatus: system.lastError ? system.lastStatus : "ok" },
       });
-      await recordEvent(system.id, trigger, "skipped", "No schedule change", schedule.hash);
       return { status: "skipped", message: "No schedule change", hash: schedule.hash };
     }
 

@@ -12,6 +12,13 @@ import { applySystem } from "./apply";
 // serves the UI and polls. Set RUN_SCHEDULER=false to disable it.
 
 const RECONCILE_INTERVAL_MS = 30_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Audit-log retention. Errors are kept much longer than successful applies.
+// Both are overridable via env. "skipped" events are no longer written and any
+// legacy ones are removed on every prune.
+const OK_RETENTION_DAYS = Number(process.env.EVENT_RETENTION_DAYS ?? 14);
+const ERROR_RETENTION_DAYS = Number(process.env.ERROR_RETENTION_DAYS ?? 90);
 
 interface Tracked {
   task: ScheduledTask;
@@ -21,6 +28,32 @@ interface Tracked {
 
 const tracked = new Map<string, Tracked>();
 let started = false;
+
+/**
+ * Trim the apply-event audit log: drop legacy "skipped" events entirely, expire
+ * successful applies after OK_RETENTION_DAYS, and expire errors after the longer
+ * ERROR_RETENTION_DAYS. Runs at startup and once a day.
+ */
+async function pruneEvents(): Promise<void> {
+  const now = Date.now();
+  try {
+    const skipped = await prisma.applyEvent.deleteMany({ where: { status: "skipped" } });
+    const ok = await prisma.applyEvent.deleteMany({
+      where: { status: "ok", createdAt: { lt: new Date(now - OK_RETENTION_DAYS * DAY_MS) } },
+    });
+    const errored = await prisma.applyEvent.deleteMany({
+      where: { status: "error", createdAt: { lt: new Date(now - ERROR_RETENTION_DAYS * DAY_MS) } },
+    });
+    const total = skipped.count + ok.count + errored.count;
+    if (total > 0) {
+      console.log(
+        `[scheduler] pruned ${total} apply events (skipped=${skipped.count}, ok=${ok.count}, error=${errored.count})`,
+      );
+    }
+  } catch (err) {
+    console.error(`[scheduler] prune error: ${(err as Error).message}`);
+  }
+}
 
 async function runSystem(systemId: string): Promise<void> {
   // Always reload the system so we use the latest config.
@@ -80,6 +113,7 @@ export async function startScheduler(): Promise<void> {
   console.log("[scheduler] starting poller");
 
   try {
+    await pruneEvents();
     await reconcile();
     // Run an initial cycle for every enabled system on boot.
     const systems = await prisma.system.findMany({ where: { enabled: true } });
@@ -93,4 +127,6 @@ export async function startScheduler(): Promise<void> {
       console.error(`[scheduler] reconcile error: ${(err as Error).message}`),
     );
   }, RECONCILE_INTERVAL_MS);
+
+  setInterval(() => void pruneEvents(), DAY_MS);
 }
