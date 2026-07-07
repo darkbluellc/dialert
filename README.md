@@ -16,7 +16,7 @@ Originally a headless cron job for [RPI Ambulance](https://rpiambulance.com), it
 - **Push trigger.** A per-system token-authenticated endpoint lets the scheduling system push changes instantly instead of waiting for the poll.
 - **Change detection.** A schedule hash means unchanged rosters are skipped; manual **Apply now** forces a re-push.
 - **Enable/disable per system.** Pause polling without deleting a system.
-- **Audit log.** Every apply that changes something or errors (cron / manual / push) is recorded and shown on the system page. Unchanged "no schedule change" polls are not recorded; the log is auto-pruned (errors kept longer than successes).
+- **Audit log.** Every apply that changes something or errors (cron / manual / push) is recorded and shown on the system page. Unchanged "no schedule change" polls are not recorded; the log is auto-pruned (errors — and the recovery success right after an error — kept longer than ordinary successes).
 - **Error notifications.** Failures are stored, surfaced in the UI, and optionally emailed (with a cooldown).
 - **Single-user auth.** One password in an env var, a signed session cookie, and reverse-proxy-aware redirects.
 

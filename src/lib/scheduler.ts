@@ -30,24 +30,50 @@ const tracked = new Map<string, Tracked>();
 let started = false;
 
 /**
- * Trim the apply-event audit log: drop legacy "skipped" events entirely, expire
- * successful applies after OK_RETENTION_DAYS, and expire errors after the longer
- * ERROR_RETENTION_DAYS. Runs at startup and once a day.
+ * Trim the apply-event audit log. Runs at startup and once a day:
+ *   - drop legacy "skipped" events entirely;
+ *   - expire errors after ERROR_RETENTION_DAYS;
+ *   - expire successful applies after OK_RETENTION_DAYS, EXCEPT a "recovery" OK
+ *     (the first success immediately after an error), which is kept for the
+ *     longer error window so the record of when a system recovered survives.
  */
 async function pruneEvents(): Promise<void> {
   const now = Date.now();
+  const okCutoff = new Date(now - OK_RETENTION_DAYS * DAY_MS);
+  const errorCutoff = new Date(now - ERROR_RETENTION_DAYS * DAY_MS);
+
   try {
+    // Identify recovery OKs (first OK after an error) per system, ordered in
+    // time. Computed before deletions so predecessors are still present.
+    const seq = await prisma.applyEvent.findMany({
+      where: { status: { in: ["ok", "error"] } },
+      select: { id: true, systemId: true, status: true },
+      orderBy: [{ systemId: "asc" }, { createdAt: "asc" }],
+    });
+    const recoveryIds: string[] = [];
+    const prevStatus: Record<string, string> = {};
+    for (const e of seq) {
+      if (e.status === "ok" && prevStatus[e.systemId] === "error") recoveryIds.push(e.id);
+      prevStatus[e.systemId] = e.status;
+    }
+
     const skipped = await prisma.applyEvent.deleteMany({ where: { status: "skipped" } });
-    const ok = await prisma.applyEvent.deleteMany({
-      where: { status: "ok", createdAt: { lt: new Date(now - OK_RETENTION_DAYS * DAY_MS) } },
-    });
     const errored = await prisma.applyEvent.deleteMany({
-      where: { status: "error", createdAt: { lt: new Date(now - ERROR_RETENTION_DAYS * DAY_MS) } },
+      where: { status: "error", createdAt: { lt: errorCutoff } },
     });
-    const total = skipped.count + ok.count + errored.count;
+    // Normal OKs expire at okCutoff; recovery OKs are excluded here…
+    const okNormal = await prisma.applyEvent.deleteMany({
+      where: { status: "ok", createdAt: { lt: okCutoff }, id: { notIn: recoveryIds } },
+    });
+    // …and instead expire at the longer errorCutoff.
+    const okRecovery = await prisma.applyEvent.deleteMany({
+      where: { status: "ok", createdAt: { lt: errorCutoff }, id: { in: recoveryIds } },
+    });
+
+    const total = skipped.count + errored.count + okNormal.count + okRecovery.count;
     if (total > 0) {
       console.log(
-        `[scheduler] pruned ${total} apply events (skipped=${skipped.count}, ok=${ok.count}, error=${errored.count})`,
+        `[scheduler] pruned ${total} apply events (skipped=${skipped.count}, error=${errored.count}, ok=${okNormal.count + okRecovery.count})`,
       );
     }
   } catch (err) {
