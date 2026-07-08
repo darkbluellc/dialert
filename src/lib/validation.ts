@@ -30,6 +30,7 @@ export const systemSchema = z
     ringTimeMulti: z.coerce.number().int().min(1).max(600).default(30),
     descriptionTemplate: z.string().trim().min(1).default("DiALERT {name} {n}"),
     maintainStructure: z.boolean().default(false),
+    keepEntryGroup: z.boolean().default(false),
     // Per-tier ring time overrides keyed by tier number.
     ringTimeOverrides: z
       .record(z.string(), z.coerce.number().int().min(1).max(600))
@@ -100,6 +101,7 @@ export function parseSystemForm(form: FormData) {
     ringTimeMulti: form.get("ringTimeMulti") ?? 30,
     descriptionTemplate: form.get("descriptionTemplate") || "DiALERT {name} {n}",
     maintainStructure: form.get("maintainStructure") === "on" || form.get("maintainStructure") === "true",
+    keepEntryGroup: form.get("keepEntryGroup") === "on" || form.get("keepEntryGroup") === "true",
     ringTimeOverrides,
     finalDestType: form.get("finalDestType") || "terminate",
     finalDestValue: form.get("finalDestValue") ?? "",

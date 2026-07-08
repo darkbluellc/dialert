@@ -26,6 +26,7 @@ export interface SystemFormValues {
   ringTimeMulti: number;
   descriptionTemplate: string;
   maintainStructure: boolean;
+  keepEntryGroup: boolean;
   ringTimeOverrides: { tier: string; seconds: string }[];
   finalDestType: FinalDestType;
   finalDestValue: string;
@@ -79,6 +80,7 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
   const [overrides, setOverrides] = useState<{ tier: string; seconds: string }[]>(
     values?.ringTimeOverrides ?? [],
   );
+  const [maintain, setMaintain] = useState(values?.maintainStructure ?? false);
   const fe = state.fieldErrors ?? {};
 
   const setRow = (i: number, patch: Partial<{ tier: string; seconds: string }>) =>
@@ -248,7 +250,8 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
             type="checkbox"
             name="maintainStructure"
             className="mt-0.5"
-            defaultChecked={values?.maintainStructure ?? false}
+            checked={maintain}
+            onChange={(e) => setMaintain(e.target.checked)}
           />
           <span>
             Maintain ring-group structure
@@ -256,6 +259,25 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
               Number ring groups by tier priority (priority 2 → &lt;prefix&gt;2). Empty tiers are
               skipped and left untouched, so priority 1 chains straight to priority 3 instead of
               collapsing to the lowest numbers.
+            </span>
+          </span>
+        </label>
+
+        <label className="ml-6 flex items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            name="keepEntryGroup"
+            className="mt-0.5"
+            defaultChecked={values?.keepEntryGroup ?? false}
+            disabled={!maintain}
+          />
+          <span className={maintain ? "" : "opacity-50"}>
+            Always keep the first ring group (&lt;prefix&gt;1) as the entry point
+            <span className="hint mt-0 block">
+              For when your inbound route always hits &lt;prefix&gt;1. If priority 1 has no members,
+              &lt;prefix&gt;1 is written as a member-less group that immediately forwards to the
+              first tier that does have members, so the inbound route still escalates. Applies only
+              when structure is maintained.
             </span>
           </span>
         </label>

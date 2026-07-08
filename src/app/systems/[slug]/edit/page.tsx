@@ -31,6 +31,7 @@ export default async function EditSystemPage({
     ringTimeMulti: system.ringTimeMulti,
     descriptionTemplate: system.descriptionTemplate,
     maintainStructure: system.maintainStructure,
+    keepEntryGroup: system.keepEntryGroup,
     ringTimeOverrides: Object.entries(
       (system.ringTimeOverrides ?? {}) as Record<string, number>,
     )

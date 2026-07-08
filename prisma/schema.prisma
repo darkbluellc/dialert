@@ -43,6 +43,12 @@ model System {
   // tiers are numbered sequentially and collapse to the lowest numbers.
   maintainStructure Boolean @default(false)
 
+  // When true (with maintainStructure), the first ring group (<prefix>1) is
+  // always written as the entry point for the inbound route. If priority 1 has
+  // no members it becomes a member-less pass-through that forwards to the first
+  // populated tier, so the inbound route always escalates.
+  keepEntryGroup Boolean @default(false)
+
   // --- Final (no-answer) destination for the last tier ---
   // type: terminate | ring_group | extension | voicemail | external
   finalDestType    String  @default("terminate")

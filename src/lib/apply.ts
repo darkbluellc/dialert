@@ -8,6 +8,12 @@ import { sendErrorEmail } from "./mailer";
 
 export type Trigger = "cron" | "manual" | "push";
 
+// The tier number the inbound route lands on (<prefix>1) and the ring time for
+// its member-less pass-through (it falls straight through to the destination,
+// so this is just a small, safe value).
+const ENTRY_TIER = 1;
+const ENTRY_PASSTHROUGH_RING_TIME = 1;
+
 export interface ApplyResult {
   status: "ok" | "skipped" | "error";
   message: string;
@@ -51,7 +57,10 @@ export function buildUpdates(system: System, groups: ScheduleGroup[]): RingGroup
   const defaultRingTime =
     populated.length === 1 ? system.ringTimeSingle : system.ringTimeMulti;
 
-  return populated.map((group, i) => {
+  const renderDescription = (n: number): string =>
+    system.descriptionTemplate.replace(/\{name\}/g, system.name).replace(/\{n\}/g, String(n));
+
+  const updates: RingGroupUpdate[] = populated.map((group, i) => {
     const num = tierNumber(group, i);
     const groupNumber = `${system.ringGroupPrefix}${num}`;
     const extensionList = group.recipients.map((r) => `${r.number}#`).join("-");
@@ -63,13 +72,9 @@ export function buildUpdates(system: System, groups: ScheduleGroup[]): RingGroup
       ? finalPostAnswer
       : `ext-group,${system.ringGroupPrefix}${tierNumber(populated[i + 1], i + 1)},1`;
 
-    const description = system.descriptionTemplate
-      .replace(/\{name\}/g, system.name)
-      .replace(/\{n\}/g, String(num));
-
     return {
       groupNumber,
-      description,
+      description: renderDescription(num),
       extensionList,
       strategy: system.ringStrategy,
       ringTime,
@@ -77,6 +82,30 @@ export function buildUpdates(system: System, groups: ScheduleGroup[]): RingGroup
       callerId: system.callerId,
     };
   });
+
+  // Pinned entry group: keep <prefix>1 as a live entry point for the inbound
+  // route. In maintain-structure mode priority 1 may be empty (and would
+  // otherwise be left untouched), which would strand the inbound route on a
+  // dead group. When that happens, prepend a member-less pass-through at
+  // <prefix>1 that forwards to the first populated tier. If priority 1 already
+  // has members it is tier 1 and no pass-through is needed. (In collapse mode
+  // <prefix>1 is always the first populated tier, so nothing to do.)
+  if (system.maintainStructure && system.keepEntryGroup && populated.length > 0) {
+    const entryAlreadyWritten = populated.some((g) => g.priority === ENTRY_TIER);
+    if (!entryAlreadyWritten) {
+      updates.unshift({
+        groupNumber: `${system.ringGroupPrefix}${ENTRY_TIER}`,
+        description: renderDescription(ENTRY_TIER),
+        extensionList: "",
+        strategy: system.ringStrategy,
+        ringTime: ENTRY_PASSTHROUGH_RING_TIME,
+        postAnswer: `ext-group,${system.ringGroupPrefix}${populated[0].priority},1`,
+        callerId: system.callerId,
+      });
+    }
+  }
+
+  return updates;
 }
 
 /** Preview (dry run): fetch the schedule and compute updates without applying. */

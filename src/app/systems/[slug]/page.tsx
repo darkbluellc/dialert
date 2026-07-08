@@ -105,6 +105,13 @@ export default async function SystemPage({
           <Row label="Tier numbering">
             {system.maintainStructure ? "By priority (structure maintained)" : "Sequential (collapses)"}
           </Row>
+          {system.maintainStructure && (
+            <Row label="Entry group">
+              {system.keepEntryGroup
+                ? `Pinned (${system.ringGroupPrefix}1 always live)`
+                : "Not pinned"}
+            </Row>
+          )}
           <Row label="Ring strategy">{system.ringStrategy}</Row>
           <Row label="Ring time (single / chained)">
             {system.ringTimeSingle}s / {system.ringTimeMulti}s
