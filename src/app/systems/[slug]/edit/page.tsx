@@ -32,6 +32,9 @@ export default async function EditSystemPage({
     descriptionTemplate: system.descriptionTemplate,
     maintainStructure: system.maintainStructure,
     keepEntryGroup: system.keepEntryGroup,
+    entryGroupMode: system.entryGroupMode === "mirror" ? "mirror" : "forward",
+    internalExtMinLen: system.internalExtMinLen != null ? String(system.internalExtMinLen) : "",
+    internalExtMaxLen: system.internalExtMaxLen != null ? String(system.internalExtMaxLen) : "",
     ringTimeOverrides: Object.entries(
       (system.ringTimeOverrides ?? {}) as Record<string, number>,
     )

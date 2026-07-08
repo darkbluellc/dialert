@@ -27,6 +27,9 @@ export interface SystemFormValues {
   descriptionTemplate: string;
   maintainStructure: boolean;
   keepEntryGroup: boolean;
+  entryGroupMode: "forward" | "mirror";
+  internalExtMinLen: string;
+  internalExtMaxLen: string;
   ringTimeOverrides: { tier: string; seconds: string }[];
   finalDestType: FinalDestType;
   finalDestValue: string;
@@ -81,6 +84,7 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
     values?.ringTimeOverrides ?? [],
   );
   const [maintain, setMaintain] = useState(values?.maintainStructure ?? false);
+  const [keepEntry, setKeepEntry] = useState(values?.keepEntryGroup ?? false);
   const fe = state.fieldErrors ?? {};
 
   const setRow = (i: number, patch: Partial<{ tier: string; seconds: string }>) =>
@@ -268,19 +272,70 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
             type="checkbox"
             name="keepEntryGroup"
             className="mt-0.5"
-            defaultChecked={values?.keepEntryGroup ?? false}
+            checked={keepEntry}
+            onChange={(e) => setKeepEntry(e.target.checked)}
             disabled={!maintain}
           />
           <span className={maintain ? "" : "opacity-50"}>
             Always keep the first ring group (&lt;prefix&gt;1) as the entry point
             <span className="hint mt-0 block">
-              For when your inbound route always hits &lt;prefix&gt;1. If priority 1 has no members,
-              &lt;prefix&gt;1 is written as a member-less group that immediately forwards to the
-              first tier that does have members, so the inbound route still escalates. Applies only
-              when structure is maintained.
+              For when your inbound route always hits &lt;prefix&gt;1. Applies only when structure is
+              maintained. When priority 1 has no members, choose what &lt;prefix&gt;1 does below.
             </span>
           </span>
         </label>
+
+        <div className="ml-6">
+          <label className="label">When priority 1 is empty, the entry group should…</label>
+          <select
+            className="input"
+            name="entryGroupMode"
+            defaultValue={values?.entryGroupMode ?? "forward"}
+            disabled={!maintain || !keepEntry}
+          >
+            <option value="forward">Forward to the first active tier (member-less)</option>
+            <option value="mirror">Mirror the first active tier&rsquo;s members</option>
+          </select>
+          <p className="hint">
+            Forward is cleanest; use mirror if your FreePBX won&rsquo;t accept a member-less ring
+            group.
+          </p>
+        </div>
+
+        <div>
+          <span className="label">Internal extension length</span>
+          <p className="hint mt-0 mb-2">
+            Recipient numbers with this many digits are treated as internal extensions and listed
+            without a trailing <code className="rounded bg-slate-100 px-1">#</code>, so they ring
+            internally instead of dialing out an outbound route. Leave blank to treat all numbers as
+            external.
+          </p>
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <span>between</span>
+            <input
+              className="input w-24"
+              name="internalExtMinLen"
+              type="number"
+              min={1}
+              max={20}
+              placeholder="min"
+              defaultValue={values?.internalExtMinLen ?? ""}
+            />
+            <span>and</span>
+            <input
+              className="input w-24"
+              name="internalExtMaxLen"
+              type="number"
+              min={1}
+              max={20}
+              placeholder="max"
+              defaultValue={values?.internalExtMaxLen ?? ""}
+            />
+            <span>digits</span>
+          </div>
+          {fe.internalExtMaxLen && <p className="hint text-red-600">{fe.internalExtMaxLen}</p>}
+          {fe.internalExtMinLen && <p className="hint text-red-600">{fe.internalExtMinLen}</p>}
+        </div>
       </section>
 
       <section className="card space-y-4">

@@ -31,6 +31,9 @@ export const systemSchema = z
     descriptionTemplate: z.string().trim().min(1).default("DiALERT {name} {n}"),
     maintainStructure: z.boolean().default(false),
     keepEntryGroup: z.boolean().default(false),
+    entryGroupMode: z.enum(["forward", "mirror"]).default("forward"),
+    internalExtMinLen: z.number().int().min(1).max(20).nullable().default(null),
+    internalExtMaxLen: z.number().int().min(1).max(20).nullable().default(null),
     // Per-tier ring time overrides keyed by tier number.
     ringTimeOverrides: z
       .record(z.string(), z.coerce.number().int().min(1).max(600))
@@ -71,12 +74,30 @@ export const systemSchema = z
         });
       }
     }
+    // Internal extension length range must be ordered.
+    if (
+      data.internalExtMinLen != null &&
+      data.internalExtMaxLen != null &&
+      data.internalExtMinLen > data.internalExtMaxLen
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["internalExtMaxLen"],
+        message: "Max length must be greater than or equal to min length",
+      });
+    }
   });
 
 export type SystemInput = z.infer<typeof systemSchema>;
 
 /** Parse a browser FormData object into a typed, validated system input. */
 export function parseSystemForm(form: FormData) {
+  const toIntOrNull = (v: FormDataEntryValue | null): number | null => {
+    const s = (v ?? "").toString().trim();
+    if (!s) return null;
+    return Number(s); // NaN if non-numeric -> fails z.number()
+  };
+
   // Paired arrays of tier number / seconds from the dynamic overrides editor.
   const tiers = form.getAll("overrideTier").map((v) => String(v).trim());
   const seconds = form.getAll("overrideSeconds").map((v) => String(v).trim());
@@ -102,6 +123,9 @@ export function parseSystemForm(form: FormData) {
     descriptionTemplate: form.get("descriptionTemplate") || "DiALERT {name} {n}",
     maintainStructure: form.get("maintainStructure") === "on" || form.get("maintainStructure") === "true",
     keepEntryGroup: form.get("keepEntryGroup") === "on" || form.get("keepEntryGroup") === "true",
+    entryGroupMode: form.get("entryGroupMode") || "forward",
+    internalExtMinLen: toIntOrNull(form.get("internalExtMinLen")),
+    internalExtMaxLen: toIntOrNull(form.get("internalExtMaxLen")),
     ringTimeOverrides,
     finalDestType: form.get("finalDestType") || "terminate",
     finalDestValue: form.get("finalDestValue") ?? "",

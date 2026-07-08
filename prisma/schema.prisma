@@ -45,9 +45,18 @@ model System {
 
   // When true (with maintainStructure), the first ring group (<prefix>1) is
   // always written as the entry point for the inbound route. If priority 1 has
-  // no members it becomes a member-less pass-through that forwards to the first
-  // populated tier, so the inbound route always escalates.
+  // no members, entryGroupMode decides what <prefix>1 does:
+  //   "forward" - member-less group that forwards to the first populated tier;
+  //   "mirror"  - copies the first populated tier's members and chaining.
   keepEntryGroup Boolean @default(false)
+  entryGroupMode String  @default("forward")
+
+  // Internal-extension detection: recipient numbers whose digit count is within
+  // [internalExtMinLen, internalExtMaxLen] are treated as internal extensions
+  // and listed WITHOUT the trailing "#" (which would route them outbound).
+  // Null bounds disable detection (all numbers get "#", the external form).
+  internalExtMinLen Int?
+  internalExtMaxLen Int?
 
   // --- Final (no-answer) destination for the last tier ---
   // type: terminate | ring_group | extension | voicemail | external

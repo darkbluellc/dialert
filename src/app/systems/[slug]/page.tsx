@@ -108,10 +108,15 @@ export default async function SystemPage({
           {system.maintainStructure && (
             <Row label="Entry group">
               {system.keepEntryGroup
-                ? `Pinned (${system.ringGroupPrefix}1 always live)`
+                ? `Pinned (${system.ringGroupPrefix}1, ${system.entryGroupMode} when empty)`
                 : "Not pinned"}
             </Row>
           )}
+          <Row label="Internal extensions">
+            {system.internalExtMinLen != null || system.internalExtMaxLen != null
+              ? `${system.internalExtMinLen ?? "1"}–${system.internalExtMaxLen ?? "∞"} digits (no #)`
+              : "—"}
+          </Row>
           <Row label="Ring strategy">{system.ringStrategy}</Row>
           <Row label="Ring time (single / chained)">
             {system.ringTimeSingle}s / {system.ringTimeMulti}s

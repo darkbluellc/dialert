@@ -14,6 +14,20 @@ export type Trigger = "cron" | "manual" | "push";
 const ENTRY_TIER = 1;
 const ENTRY_PASSTHROUGH_RING_TIME = 1;
 
+/**
+ * Format a recipient number for a FreePBX ring group extension list. External
+ * numbers get a trailing "#" so they dial out; internal extensions (digit count
+ * within the system's configured range) are listed as-is so they ring
+ * internally instead of hitting an outbound route.
+ */
+function formatMember(number: string, minLen: number | null, maxLen: number | null): string {
+  const digits = number.replace(/\D/g, "").length;
+  const hasRange = minLen != null || maxLen != null;
+  const internal =
+    hasRange && (minLen == null || digits >= minLen) && (maxLen == null || digits <= maxLen);
+  return internal ? number : `${number}#`;
+}
+
 export interface ApplyResult {
   status: "ok" | "skipped" | "error";
   message: string;
@@ -63,7 +77,9 @@ export function buildUpdates(system: System, groups: ScheduleGroup[]): RingGroup
   const updates: RingGroupUpdate[] = populated.map((group, i) => {
     const num = tierNumber(group, i);
     const groupNumber = `${system.ringGroupPrefix}${num}`;
-    const extensionList = group.recipients.map((r) => `${r.number}#`).join("-");
+    const extensionList = group.recipients
+      .map((r) => formatMember(r.number, system.internalExtMinLen, system.internalExtMaxLen))
+      .join("-");
     const override = overrides[String(num)];
     const ringTime = typeof override === "number" ? override : defaultRingTime;
 
@@ -93,15 +109,28 @@ export function buildUpdates(system: System, groups: ScheduleGroup[]): RingGroup
   if (system.maintainStructure && system.keepEntryGroup && populated.length > 0) {
     const entryAlreadyWritten = populated.some((g) => g.priority === ENTRY_TIER);
     if (!entryAlreadyWritten) {
-      updates.unshift({
-        groupNumber: `${system.ringGroupPrefix}${ENTRY_TIER}`,
-        description: renderDescription(ENTRY_TIER),
-        extensionList: "",
-        strategy: system.ringStrategy,
-        ringTime: ENTRY_PASSTHROUGH_RING_TIME,
-        postAnswer: `ext-group,${system.ringGroupPrefix}${populated[0].priority},1`,
-        callerId: system.callerId,
-      });
+      const entryGroupNumber = `${system.ringGroupPrefix}${ENTRY_TIER}`;
+      if (system.entryGroupMode === "mirror") {
+        // Copy the first populated tier (members, ring time, and its no-answer
+        // destination) into <prefix>1, so the entry rings the same people and
+        // continues to the same next tier.
+        updates.unshift({
+          ...updates[0],
+          groupNumber: entryGroupNumber,
+          description: renderDescription(ENTRY_TIER),
+        });
+      } else {
+        // "forward": a member-less group that forwards to the first populated tier.
+        updates.unshift({
+          groupNumber: entryGroupNumber,
+          description: renderDescription(ENTRY_TIER),
+          extensionList: "",
+          strategy: system.ringStrategy,
+          ringTime: ENTRY_PASSTHROUGH_RING_TIME,
+          postAnswer: `ext-group,${system.ringGroupPrefix}${populated[0].priority},1`,
+          callerId: system.callerId,
+        });
+      }
     }
   }
 
