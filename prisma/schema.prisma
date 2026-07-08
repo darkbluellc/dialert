@@ -58,6 +58,13 @@ model System {
   internalExtMinLen Int?
   internalExtMaxLen Int?
 
+  // Declared tiers (maintain mode only). tierCount is how many tiers the system
+  // has (drives the config UI). tierConfig is a JSON map keyed by tier number of
+  // per-tier overrides: { "2": { forceEmpty: true, destType: "terminate",
+  // destSubtype: "busy" } }. destType is next|ring_group|extension|terminate.
+  tierCount  Int?
+  tierConfig Json?
+
   // --- Final (no-answer) destination for the last tier ---
   // type: terminate | ring_group | extension | voicemail | external
   finalDestType    String  @default("terminate")

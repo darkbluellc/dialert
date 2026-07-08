@@ -34,6 +34,20 @@ export const systemSchema = z
     entryGroupMode: z.enum(["forward", "mirror"]).default("forward"),
     internalExtMinLen: z.number().int().min(1).max(20).nullable().default(null),
     internalExtMaxLen: z.number().int().min(1).max(20).nullable().default(null),
+    // Declared tiers (maintain mode). tierCount drives the config UI; tierConfig
+    // holds per-tier forced-empty / forced-destination overrides.
+    tierCount: z.number().int().min(1).max(20).nullable().default(null),
+    tierConfig: z
+      .record(
+        z.string(),
+        z.object({
+          forceEmpty: z.boolean().optional(),
+          destType: z.enum(["next", "ring_group", "extension", "terminate"]).optional(),
+          destValue: z.string().optional(),
+          destSubtype: z.string().optional(),
+        }),
+      )
+      .default({}),
     // Per-tier ring time overrides keyed by tier number.
     ringTimeOverrides: z
       .record(z.string(), z.coerce.number().int().min(1).max(600))
@@ -86,6 +100,16 @@ export const systemSchema = z
         message: "Max length must be greater than or equal to min length",
       });
     }
+    // A forced ring-group/extension tier destination needs a target value.
+    for (const [tier, c] of Object.entries(data.tierConfig)) {
+      if ((c.destType === "ring_group" || c.destType === "extension") && !c.destValue?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["tierConfig"],
+          message: `Tier ${tier}: a ${c.destType.replace("_", " ")} destination needs a target value`,
+        });
+      }
+    }
   });
 
 export type SystemInput = z.infer<typeof systemSchema>;
@@ -97,6 +121,17 @@ export function parseSystemForm(form: FormData) {
     if (!s) return null;
     return Number(s); // NaN if non-numeric -> fails z.number()
   };
+
+  // Declared tier config comes as a single hidden JSON field.
+  let tierConfig: unknown = {};
+  const tierConfigRaw = form.get("tierConfigJson");
+  if (tierConfigRaw) {
+    try {
+      tierConfig = JSON.parse(String(tierConfigRaw));
+    } catch {
+      tierConfig = {};
+    }
+  }
 
   // Paired arrays of tier number / seconds from the dynamic overrides editor.
   const tiers = form.getAll("overrideTier").map((v) => String(v).trim());
@@ -126,6 +161,8 @@ export function parseSystemForm(form: FormData) {
     entryGroupMode: form.get("entryGroupMode") || "forward",
     internalExtMinLen: toIntOrNull(form.get("internalExtMinLen")),
     internalExtMaxLen: toIntOrNull(form.get("internalExtMaxLen")),
+    tierCount: toIntOrNull(form.get("tierCount")),
+    tierConfig,
     ringTimeOverrides,
     finalDestType: form.get("finalDestType") || "terminate",
     finalDestValue: form.get("finalDestValue") ?? "",

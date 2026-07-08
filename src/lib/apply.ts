@@ -1,18 +1,31 @@
 import type { System } from "@prisma/client";
 import { prisma } from "./prisma";
 import { maybeDecrypt } from "./crypto";
-import { fetchSchedule, ScheduleError, type ScheduleGroup } from "./schedule";
+import { fetchSchedule, ScheduleError, type ScheduleGroup, type Recipient } from "./schedule";
 import { applyRingGroups, resolveCreds, type RingGroupUpdate } from "./freepbx";
-import { toPostAnswer, describeDestination, type FinalDestination } from "./destinations";
+import {
+  toPostAnswer,
+  describeDestination,
+  type FinalDestination,
+  type FinalDestType,
+} from "./destinations";
 import { sendErrorEmail } from "./mailer";
 
 export type Trigger = "cron" | "manual" | "push";
 
-// The tier number the inbound route lands on (<prefix>1) and the ring time for
-// its member-less pass-through (it falls straight through to the destination,
-// so this is just a small, safe value).
+// The tier number the inbound route lands on (<prefix>1). Member-less groups
+// (entry pass-throughs, forced-empty tiers) use a tiny ring time since they
+// fall straight through to their destination.
 const ENTRY_TIER = 1;
-const ENTRY_PASSTHROUGH_RING_TIME = 1;
+const EMPTY_GROUP_RING_TIME = 1;
+
+// Per-tier declaration stored on the system (only used in maintain mode).
+interface TierConfigEntry {
+  forceEmpty?: boolean;
+  destType?: "next" | "ring_group" | "extension" | "terminate";
+  destValue?: string | null;
+  destSubtype?: string | null;
+}
 
 /**
  * Format a recipient number for a FreePBX ring group extension list. External
@@ -45,53 +58,98 @@ function finalDestOf(system: System): FinalDestination {
 
 /**
  * Build the ordered ring-group updates for a system from a normalized schedule.
- * Only tiers that have members are written; empty tiers are skipped (left
- * untouched on the PBX). Each written tier chains to the next written tier; the
- * last goes to the system's configured final destination.
+ * Only tiers that have members (or are explicitly declared) are written; other
+ * tiers are skipped and left untouched on the PBX. Each written tier chains to
+ * the next written tier — jumping across un-written ones — and the last goes to
+ * the system's configured final destination.
  *
- * Tier numbering depends on `maintainStructure`:
- *   - false (default): sequential by position (<prefix>1, <prefix>2, ...), so
- *     tiers collapse to the lowest numbers when some are empty.
- *   - true: the tier's priority sets its number (<prefix><priority>), so
- *     numbering stays stable and an empty priority is bypassed (priority 1
- *     chains straight to priority 3).
+ * Collapse mode (maintainStructure = false): tiers numbered sequentially by
+ * position (<prefix>1, <prefix>2, …), collapsing to the lowest numbers.
+ *
+ * Maintain mode (maintainStructure = true): tiers numbered by priority
+ * (<prefix><priority>) so numbering stays stable. In this mode a per-system
+ * tier declaration (tierCount + tierConfig) can additionally force specific
+ * tiers to be member-less and/or route to a fixed destination.
  */
 export function buildUpdates(system: System, groups: ScheduleGroup[]): RingGroupUpdate[] {
   const finalPostAnswer = toPostAnswer(finalDestOf(system));
-
-  // Skip tiers with no members — they are left untouched on the PBX.
-  const populated = groups.filter((g) => g.recipients.length > 0);
-
-  // The number assigned to a populated tier at position `i`.
-  const tierNumber = (group: ScheduleGroup, i: number): number =>
-    system.maintainStructure ? group.priority : i + 1;
-
-  // Optional per-tier ring time overrides, keyed by tier number.
   const overrides = (system.ringTimeOverrides ?? {}) as Record<string, number>;
-  const defaultRingTime =
-    populated.length === 1 ? system.ringTimeSingle : system.ringTimeMulti;
+  const populated = groups.filter((g) => g.recipients.length > 0);
 
   const renderDescription = (n: number): string =>
     system.descriptionTemplate.replace(/\{name\}/g, system.name).replace(/\{n\}/g, String(n));
-
-  const updates: RingGroupUpdate[] = populated.map((group, i) => {
-    const num = tierNumber(group, i);
-    const groupNumber = `${system.ringGroupPrefix}${num}`;
-    const extensionList = group.recipients
+  const fmt = (recipients: Recipient[]): string =>
+    recipients
       .map((r) => formatMember(r.number, system.internalExtMinLen, system.internalExtMaxLen))
       .join("-");
-    const override = overrides[String(num)];
-    const ringTime = typeof override === "number" ? override : defaultRingTime;
 
-    const isLast = i === populated.length - 1;
-    const postAnswer = isLast
-      ? finalPostAnswer
-      : `ext-group,${system.ringGroupPrefix}${tierNumber(populated[i + 1], i + 1)},1`;
+  // --- Collapse mode: sequential numbering, skip empty tiers. ---
+  if (!system.maintainStructure) {
+    const defaultRingTime = populated.length === 1 ? system.ringTimeSingle : system.ringTimeMulti;
+    return populated.map((group, i) => {
+      const num = i + 1;
+      const isLast = i === populated.length - 1;
+      return {
+        groupNumber: `${system.ringGroupPrefix}${num}`,
+        description: renderDescription(num),
+        extensionList: fmt(group.recipients),
+        strategy: system.ringStrategy,
+        ringTime: overrides[String(num)] ?? defaultRingTime,
+        postAnswer: isLast ? finalPostAnswer : `ext-group,${system.ringGroupPrefix}${num + 1},1`,
+        callerId: system.callerId,
+      };
+    });
+  }
 
+  // --- Maintain mode: numbering by priority/tier number. ---
+  const membersByTier = new Map<number, Recipient[]>();
+  for (const g of populated) membersByTier.set(g.priority, g.recipients);
+
+  // Declared tier config: which tiers are forced empty / to a fixed destination.
+  const tierCfg = (system.tierConfig ?? {}) as Record<string, TierConfigEntry>;
+  const forceEmpty = new Set<number>();
+  const forcedDest = new Map<number, FinalDestination>();
+  for (const [key, c] of Object.entries(tierCfg)) {
+    const n = Number(key);
+    if (!Number.isInteger(n) || n < 1) continue;
+    if (c.forceEmpty) forceEmpty.add(n);
+    if (c.destType && c.destType !== "next") {
+      forcedDest.set(n, {
+        type: c.destType as FinalDestType,
+        value: c.destValue ?? null,
+        subtype: c.destSubtype ?? null,
+      });
+    }
+  }
+
+  // A tier is written if it is staffed (and not forced empty) or explicitly
+  // forced (empty and/or given a fixed destination).
+  const writtenSet = new Set<number>();
+  for (const p of membersByTier.keys()) if (!forceEmpty.has(p)) writtenSet.add(p);
+  for (const n of forceEmpty) writtenSet.add(n);
+  for (const n of forcedDest.keys()) writtenSet.add(n);
+
+  const tiers = [...writtenSet]
+    .sort((a, b) => a - b)
+    .map((num) => ({ num, members: forceEmpty.has(num) ? [] : (membersByTier.get(num) ?? []) }));
+
+  const staffedCount = tiers.filter((t) => t.members.length > 0).length;
+  const defaultRingTime = staffedCount <= 1 ? system.ringTimeSingle : system.ringTimeMulti;
+
+  const updates: RingGroupUpdate[] = tiers.map(({ num, members }, idx) => {
+    const forced = forcedDest.get(num);
+    const next = tiers[idx + 1];
+    const postAnswer = forced
+      ? toPostAnswer(forced)
+      : next
+        ? `ext-group,${system.ringGroupPrefix}${next.num},1`
+        : finalPostAnswer;
+    const ringTime =
+      members.length === 0 ? EMPTY_GROUP_RING_TIME : (overrides[String(num)] ?? defaultRingTime);
     return {
-      groupNumber,
+      groupNumber: `${system.ringGroupPrefix}${num}`,
       description: renderDescription(num),
-      extensionList,
+      extensionList: fmt(members),
       strategy: system.ringStrategy,
       ringTime,
       postAnswer,
@@ -99,38 +157,27 @@ export function buildUpdates(system: System, groups: ScheduleGroup[]): RingGroup
     };
   });
 
-  // Pinned entry group: keep <prefix>1 as a live entry point for the inbound
-  // route. In maintain-structure mode priority 1 may be empty (and would
-  // otherwise be left untouched), which would strand the inbound route on a
-  // dead group. When that happens, prepend a member-less pass-through at
-  // <prefix>1 that forwards to the first populated tier. If priority 1 already
-  // has members it is tier 1 and no pass-through is needed. (In collapse mode
-  // <prefix>1 is always the first populated tier, so nothing to do.)
-  if (system.maintainStructure && system.keepEntryGroup && populated.length > 0) {
-    const entryAlreadyWritten = populated.some((g) => g.priority === ENTRY_TIER);
-    if (!entryAlreadyWritten) {
-      const entryGroupNumber = `${system.ringGroupPrefix}${ENTRY_TIER}`;
-      if (system.entryGroupMode === "mirror") {
-        // Copy the first populated tier (members, ring time, and its no-answer
-        // destination) into <prefix>1, so the entry rings the same people and
-        // continues to the same next tier.
-        updates.unshift({
-          ...updates[0],
-          groupNumber: entryGroupNumber,
-          description: renderDescription(ENTRY_TIER),
-        });
-      } else {
-        // "forward": a member-less group that forwards to the first populated tier.
-        updates.unshift({
-          groupNumber: entryGroupNumber,
-          description: renderDescription(ENTRY_TIER),
-          extensionList: "",
-          strategy: system.ringStrategy,
-          ringTime: ENTRY_PASSTHROUGH_RING_TIME,
-          postAnswer: `ext-group,${system.ringGroupPrefix}${populated[0].priority},1`,
-          callerId: system.callerId,
-        });
-      }
+  // Pinned entry group: keep <prefix>1 a live entry point when tier 1 isn't
+  // otherwise written (priority 1 empty and not forced). Forward = member-less
+  // pass-through to the first written tier; mirror = copy that tier.
+  if (system.keepEntryGroup && tiers.length > 0 && !writtenSet.has(ENTRY_TIER)) {
+    const entryGroupNumber = `${system.ringGroupPrefix}${ENTRY_TIER}`;
+    if (system.entryGroupMode === "mirror") {
+      updates.unshift({
+        ...updates[0],
+        groupNumber: entryGroupNumber,
+        description: renderDescription(ENTRY_TIER),
+      });
+    } else {
+      updates.unshift({
+        groupNumber: entryGroupNumber,
+        description: renderDescription(ENTRY_TIER),
+        extensionList: "",
+        strategy: system.ringStrategy,
+        ringTime: EMPTY_GROUP_RING_TIME,
+        postAnswer: `ext-group,${system.ringGroupPrefix}${tiers[0].num},1`,
+        callerId: system.callerId,
+      });
     }
   }
 

@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { saveSystemAction, type FormState } from "@/app/systems/actions";
+import TierConfigEditor, { type TierCfg } from "@/components/TierConfigEditor";
 import {
   FINAL_DEST_TYPES,
   TERMINATE_SUBTYPES,
@@ -30,6 +31,8 @@ export interface SystemFormValues {
   entryGroupMode: "forward" | "mirror";
   internalExtMinLen: string;
   internalExtMaxLen: string;
+  tierCount: string;
+  tierConfig: Record<string, TierCfg>;
   ringTimeOverrides: { tier: string; seconds: string }[];
   finalDestType: FinalDestType;
   finalDestValue: string;
@@ -85,6 +88,7 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
   );
   const [maintain, setMaintain] = useState(values?.maintainStructure ?? false);
   const [keepEntry, setKeepEntry] = useState(values?.keepEntryGroup ?? false);
+  const [prefix, setPrefix] = useState(values?.ringGroupPrefix ?? "");
   const fe = state.fieldErrors ?? {};
 
   const setRow = (i: number, patch: Partial<{ tier: string; seconds: string }>) =>
@@ -167,7 +171,13 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
             hint="Tiers become PREFIX1, PREFIX2, … (e.g. 100 → 1001, 1002)"
             error={fe.ringGroupPrefix}
           >
-            <input className="input" name="ringGroupPrefix" defaultValue={values?.ringGroupPrefix} required />
+            <input
+              className="input"
+              name="ringGroupPrefix"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value)}
+              required
+            />
           </Field>
           <Field label="Fixed caller ID" hint="Optional outbound CID for the ring groups" error={fe.callerId}>
             <input className="input" name="callerId" defaultValue={values?.callerId} />
@@ -301,6 +311,13 @@ export default function SystemForm({ values }: { values?: SystemFormValues }) {
             group.
           </p>
         </div>
+
+        <TierConfigEditor
+          maintain={maintain}
+          prefix={prefix}
+          initialCount={values?.tierCount ?? ""}
+          initialTiers={values?.tierConfig ?? {}}
+        />
 
         <div>
           <span className="label">Internal extension length</span>

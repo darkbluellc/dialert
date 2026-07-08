@@ -117,6 +117,26 @@ export default async function SystemPage({
               ? `${system.internalExtMinLen ?? "1"}–${system.internalExtMaxLen ?? "∞"} digits (no #)`
               : "—"}
           </Row>
+          {system.maintainStructure && system.tierCount != null && (
+            <Row label="Declared tiers">
+              {(() => {
+                const cfg = (system.tierConfig ?? {}) as Record<
+                  string,
+                  { forceEmpty?: boolean; destType?: string; destValue?: string; destSubtype?: string }
+                >;
+                const forced = Object.entries(cfg)
+                  .map(([t, c]) => {
+                    const parts: string[] = [];
+                    if (c.forceEmpty) parts.push("empty");
+                    if (c.destType && c.destType !== "next")
+                      parts.push(`→ ${c.destType}${c.destValue ? ` ${c.destValue}` : ""}${c.destSubtype && c.destType === "terminate" ? ` ${c.destSubtype}` : ""}`);
+                    return parts.length ? `t${t}: ${parts.join(", ")}` : null;
+                  })
+                  .filter(Boolean);
+                return `${system.tierCount} tiers${forced.length ? ` (${forced.join("; ")})` : ""}`;
+              })()}
+            </Row>
+          )}
           <Row label="Ring strategy">{system.ringStrategy}</Row>
           <Row label="Ring time (single / chained)">
             {system.ringTimeSingle}s / {system.ringTimeMulti}s

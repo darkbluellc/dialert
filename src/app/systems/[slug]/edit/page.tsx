@@ -2,9 +2,26 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import SystemForm, { type SystemFormValues } from "@/components/SystemForm";
+import type { TierCfg } from "@/components/TierConfigEditor";
 import type { FinalDestType } from "@/lib/destinations";
 
 export const dynamic = "force-dynamic";
+
+// Normalize the stored tierConfig JSON into fully-populated form rows.
+function normalizeTierConfig(raw: unknown): Record<string, TierCfg> {
+  const out: Record<string, TierCfg> = {};
+  if (raw && typeof raw === "object") {
+    for (const [k, v] of Object.entries(raw as Record<string, Partial<TierCfg>>)) {
+      out[k] = {
+        forceEmpty: Boolean(v?.forceEmpty),
+        destType: (v?.destType as TierCfg["destType"]) ?? "next",
+        destValue: v?.destValue ?? "",
+        destSubtype: v?.destSubtype ?? "hangup",
+      };
+    }
+  }
+  return out;
+}
 
 export default async function EditSystemPage({
   params,
@@ -35,6 +52,8 @@ export default async function EditSystemPage({
     entryGroupMode: system.entryGroupMode === "mirror" ? "mirror" : "forward",
     internalExtMinLen: system.internalExtMinLen != null ? String(system.internalExtMinLen) : "",
     internalExtMaxLen: system.internalExtMaxLen != null ? String(system.internalExtMaxLen) : "",
+    tierCount: system.tierCount != null ? String(system.tierCount) : "",
+    tierConfig: normalizeTierConfig(system.tierConfig),
     ringTimeOverrides: Object.entries(
       (system.ringTimeOverrides ?? {}) as Record<string, number>,
     )

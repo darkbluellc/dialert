@@ -50,6 +50,8 @@ export async function saveSystemAction(
     entryGroupMode: d.entryGroupMode,
     internalExtMinLen: d.internalExtMinLen,
     internalExtMaxLen: d.internalExtMaxLen,
+    tierCount: d.tierCount,
+    tierConfig: d.tierConfig,
     ringTimeOverrides: d.ringTimeOverrides,
     finalDestType: d.finalDestType,
     finalDestValue: d.finalDestValue || null,
