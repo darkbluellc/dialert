@@ -60,7 +60,7 @@ fi
 
 echo "==> Triggering Coolify deploy for $COOLIFY_UUID"
 HTTP_CODE="$(curl -sS -o /tmp/dialert_deploy_resp.json -w "%{http_code}" \
-  -X GET "${COOLIFY_URL%/}/api/v1/deploy?uuid=${COOLIFY_UUID}&force=false" \
+  -X POST "${COOLIFY_URL%/}/api/v1/deploy?uuid=${COOLIFY_UUID}&force=false" \
   -H "Authorization: Bearer ${COOLIFY_TOKEN}")"
 
 echo "Coolify response ($HTTP_CODE):"
