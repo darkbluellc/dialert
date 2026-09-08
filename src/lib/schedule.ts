@@ -62,31 +62,37 @@ export async function fetchSchedule(params: {
 
   let groups: ScheduleGroup[];
   if (Array.isArray(body.groups)) {
-    groups = body.groups
-      .slice()
-      .sort((a: any, b: any) => a.priority - b.priority)
-      .map((g: any) => ({ priority: g.priority, recipients: g.recipients }));
+    groups = body.groups.map((g: any) => ({ priority: g.priority, recipients: g.recipients }));
   } else if (Array.isArray(body.recipients)) {
-    groups = body.recipients
-      .slice()
-      .sort((a: any, b: any) => a.priority - b.priority)
-      .map((r: Recipient) => ({ priority: r.priority ?? 0, recipients: [r] }));
+    groups = body.recipients.map((r: Recipient) => ({ priority: r.priority ?? 0, recipients: [r] }));
   } else {
     throw new ScheduleError("Schedule response contained neither `groups` nor `recipients`");
   }
 
-  // A tier may be empty (that tier is simply skipped when building the chain),
-  // but any recipient present must have a phone number, and at least one tier
-  // overall must have members.
   if (groups.length === 0) {
     throw new ScheduleError("Schedule contained no groups");
   }
+
+  // recipients must be an array before we merge.
   for (const group of groups) {
     if (!Array.isArray(group.recipients)) {
       throw new ScheduleError(
         `Schedule group (priority ${group.priority}) has an invalid recipients value`,
       );
     }
+  }
+
+  // Merge entries that share a priority into one tier. A scheduling system may
+  // emit multiple entries at the same priority — e.g. two people on the same
+  // tier with different shift windows — and they should all ring together in
+  // that tier. Recipients are concatenated (de-duplicated by number) and tiers
+  // are ordered by ascending priority.
+  groups = mergeByPriority(groups);
+
+  // A tier may be empty (simply skipped when building the chain), but any
+  // recipient present must have a phone number, and at least one tier overall
+  // must have members.
+  for (const group of groups) {
     for (const r of group.recipients) {
       if (!r.number) {
         throw new ScheduleError(
@@ -104,6 +110,32 @@ export async function fetchSchedule(params: {
   const hash = body.hash ?? deriveHash(groups);
 
   return { hash, groups };
+}
+
+// Combine groups sharing a priority into a single tier, ordered by priority.
+function mergeByPriority(groups: ScheduleGroup[]): ScheduleGroup[] {
+  const byPriority = new Map<number, Recipient[]>();
+  for (const g of groups) {
+    const list = byPriority.get(g.priority) ?? [];
+    list.push(...g.recipients);
+    byPriority.set(g.priority, list);
+  }
+  return [...byPriority.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([priority, recipients]) => ({ priority, recipients: dedupeByNumber(recipients) }));
+}
+
+// Remove duplicate numbers within a tier (e.g. overlapping shifts of the same
+// person), keeping the first occurrence so a number isn't dialed twice.
+function dedupeByNumber(recipients: Recipient[]): Recipient[] {
+  const seen = new Set<string>();
+  const out: Recipient[] = [];
+  for (const r of recipients) {
+    if (r.number && seen.has(r.number)) continue;
+    if (r.number) seen.add(r.number);
+    out.push(r);
+  }
+  return out;
 }
 
 function deriveHash(groups: ScheduleGroup[]): string {
