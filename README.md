@@ -93,6 +93,7 @@ All app config is read by the web server (and the poller, which runs in the same
 | `FREEPBX_API_URL` | yes | FreePBX API base (also the OAuth token host) |
 | `FREEPBX_CLIENT_ID` / `FREEPBX_CLIENT_SECRET` | yes | FreePBX API client credentials |
 | `FREEPBX_GQL_URL` | no | FreePBX GraphQL endpoint; defaults to `<FREEPBX_API_URL>/gql` |
+| `FREEPBX_TOKEN_URL` | no | FreePBX OAuth token endpoint; defaults to `<FREEPBX_API_URL>/token` |
 | `FREEPBX_SCOPE` | no | Defaults to `gql:ringgroups gql:framework` |
 | `ERROR_EMAIL_ADDRESS`, `SMTP_*` | no | Error notifications; if unset, errors are logged/stored only |
 | `TZ` | no | Default display timezone |

@@ -6,8 +6,9 @@ import { env } from "./env";
 // env values but can be overridden per system (future multi-PBX support).
 
 export interface FreepbxCreds {
-  apiUrl: string; // token host, e.g. https://pbx.example.com/admin/api/api/
+  apiUrl: string; // API base, e.g. https://pbx.example.com/admin/api/api/
   gqlUrl: string; // GraphQL endpoint
+  tokenUrl: string; // OAuth token endpoint ("" = derive "<apiUrl>/token")
   clientId: string;
   clientSecret: string;
   scope: string; // space-separated
@@ -37,6 +38,7 @@ export function resolveCreds(overrides?: Partial<FreepbxCreds>): FreepbxCreds {
   const creds: FreepbxCreds = {
     apiUrl,
     gqlUrl: overrides?.gqlUrl || base.gqlUrl || deriveGqlUrl(apiUrl),
+    tokenUrl: overrides?.tokenUrl || base.tokenUrl,
     clientId: overrides?.clientId || base.clientId,
     clientSecret: overrides?.clientSecret || base.clientSecret,
     scope: overrides?.scope || base.scope,
@@ -69,16 +71,19 @@ function payloadDetail(payload: unknown): string {
 }
 
 async function getAccessToken(creds: FreepbxCreds): Promise<string> {
-  // The token path is resolved relative to the API URL, which only preserves
-  // the URL's path when it ends in "/" (otherwise ".../api/api" + "token"
-  // becomes ".../api/token"). Normalize so both forms work, matching how the
-  // GraphQL URL is derived.
-  const tokenHost = creds.apiUrl.endsWith("/") ? creds.apiUrl : `${creds.apiUrl}/`;
-  const tokenUrl = `${tokenHost}token`;
+  // Use FREEPBX_TOKEN_URL verbatim when set. Otherwise derive "<apiUrl>/token";
+  // the token path is resolved relative to the API URL, which only preserves the
+  // URL's path when it ends in "/" (".../api/api" + "token" would become
+  // ".../api/token"), so normalize the trailing slash first.
+  const apiBase = creds.apiUrl.endsWith("/") ? creds.apiUrl : `${creds.apiUrl}/`;
+  const tokenUrl = creds.tokenUrl || `${apiBase}token`;
+  const parsed = new URL(tokenUrl);
+  const tokenHost = parsed.origin;
+  const tokenPath = `${parsed.pathname}${parsed.search}`;
 
   const client = new ClientCredentials({
     client: { id: creds.clientId, secret: creds.clientSecret },
-    auth: { tokenHost, tokenPath: "token" },
+    auth: { tokenHost, tokenPath },
     // `true` (not "strict"): JSON responses are still parsed, but a non-JSON
     // error body (e.g. an HTML 500 page) is kept so the status and body can be
     // reported instead of a generic content-type error.

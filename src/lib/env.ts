@@ -25,6 +25,8 @@ export const env = {
   freepbx: () => ({
     apiUrl: optional("FREEPBX_API_URL"),
     gqlUrl: optional("FREEPBX_GQL_URL"),
+    // Optional explicit OAuth token URL; when unset it's "<apiUrl>/token".
+    tokenUrl: optional("FREEPBX_TOKEN_URL"),
     clientId: optional("FREEPBX_CLIENT_ID"),
     clientSecret: optional("FREEPBX_CLIENT_SECRET"),
     scope: optional("FREEPBX_SCOPE", "gql:ringgroups gql:framework"),
