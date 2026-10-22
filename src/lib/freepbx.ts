@@ -67,7 +67,11 @@ async function getAccessToken(creds: FreepbxCreds): Promise<string> {
 
 interface GqlResult {
   status: number;
-  body: { data?: unknown; errors?: { message?: string }[] } | null;
+  body: {
+    data?: Record<string, { status?: unknown; message?: string } | null>;
+    errors?: { message?: string }[];
+  } | null;
+  text: string; // raw response body, kept for diagnostics (e.g. a PHP error page)
 }
 
 async function gql(
@@ -83,24 +87,47 @@ async function gql(
     },
     body: JSON.stringify({ query }),
   });
+  const text = await res.text();
   let body: GqlResult["body"] = null;
   try {
-    body = await res.json();
+    body = JSON.parse(text);
   } catch {
-    /* ignore non-JSON bodies */
+    /* non-JSON body (e.g. an HTML error page) — kept in `text` */
   }
-  return { status: res.status, body };
+  return { status: res.status, body, text };
 }
 
-/** Throw a descriptive error if a GraphQL call failed at the HTTP or GraphQL level. */
-function assertGqlOk(context: string, result: GqlResult): void {
+// Best available explanation of a failed call: GraphQL error messages if
+// present, otherwise a trimmed, tag-stripped snippet of the raw body.
+function failureDetail(result: GqlResult): string {
+  const errors = result.body?.errors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    return errors.map((e) => e?.message ?? "unknown").join("; ");
+  }
+  const snippet = result.text
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 400);
+  return snippet || "(empty response body)";
+}
+
+/**
+ * Throw a descriptive error if a GraphQL call failed at the HTTP level, the
+ * GraphQL level, or the mutation level (FreePBX returns `status: false` with a
+ * message inside a 200 response for logical failures).
+ */
+function assertGqlOk(context: string, result: GqlResult, mutation?: string): void {
   if (result.status >= 400) {
-    throw new Error(`${context} failed: HTTP ${result.status}`);
+    throw new Error(`${context} failed: HTTP ${result.status} — ${failureDetail(result)}`);
   }
   const errors = result.body?.errors;
   if (Array.isArray(errors) && errors.length > 0) {
-    const messages = errors.map((e) => e?.message ?? "unknown").join("; ");
-    throw new Error(`${context} failed: ${messages}`);
+    throw new Error(`${context} failed: ${failureDetail(result)}`);
+  }
+  const payload = mutation ? result.body?.data?.[mutation] : undefined;
+  if (payload && (payload.status === false || payload.status === "false")) {
+    throw new Error(`${context} failed: ${payload.message ?? "FreePBX reported failure"}`);
   }
 }
 
@@ -146,7 +173,20 @@ export async function applyRingGroups(
     }`;
 
     const result = await gql(creds, accessToken, query);
-    assertGqlOk(`updateRingGroup ${u.groupNumber}`, result);
+    try {
+      assertGqlOk(
+        `updateRingGroup ${u.groupNumber} (members: ${u.extensionList || "none"}, ` +
+          `ringTime: ${u.ringTime}, postAnswer: ${u.postAnswer}, ` +
+          `cid: ${u.callerId ? "fixed" : "default"})`,
+        result,
+        "updateRingGroup",
+      );
+    } catch (err) {
+      // Full mutation in the container logs for debugging (no secrets in it;
+      // the access token is only in the Authorization header).
+      console.error(`[freepbx] failing mutation:\n${query}\n[freepbx] raw response (HTTP ${result.status}):\n${result.text.slice(0, 2000)}`);
+      throw err;
+    }
     statuses.push(result.status);
   }
 
@@ -155,7 +195,7 @@ export async function applyRingGroups(
     accessToken,
     `mutation{ doreload(input:{}) { message status transaction_id } }`,
   );
-  assertGqlOk("PBX reload", reload);
+  assertGqlOk("PBX reload", reload, "doreload");
 
   return { statuses, reloadStatus: reload.status };
 }
