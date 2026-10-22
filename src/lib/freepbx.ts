@@ -53,15 +53,51 @@ export function resolveCreds(overrides?: Partial<FreepbxCreds>): FreepbxCreds {
   return creds;
 }
 
+// Readable summary of an HTTP error payload (JSON object, Buffer, or string),
+// preferring OAuth-style error fields when present.
+function payloadDetail(payload: unknown): string {
+  if (payload == null) return "";
+  if (Buffer.isBuffer(payload)) payload = payload.toString("utf8");
+  if (typeof payload === "object") {
+    const p = payload as Record<string, unknown>;
+    const fields = ["error", "error_description", "message", "hint"]
+      .map((k) => p[k])
+      .filter((v) => typeof v === "string" && v);
+    return fields.length ? fields.join(" — ") : JSON.stringify(payload).slice(0, 400);
+  }
+  return String(payload).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 400);
+}
+
 async function getAccessToken(creds: FreepbxCreds): Promise<string> {
+  // The token path is resolved relative to the API URL, which only preserves
+  // the URL's path when it ends in "/" (otherwise ".../api/api" + "token"
+  // becomes ".../api/token"). Normalize so both forms work, matching how the
+  // GraphQL URL is derived.
+  const tokenHost = creds.apiUrl.endsWith("/") ? creds.apiUrl : `${creds.apiUrl}/`;
+  const tokenUrl = `${tokenHost}token`;
+
   const client = new ClientCredentials({
     client: { id: creds.clientId, secret: creds.clientSecret },
-    auth: { tokenHost: creds.apiUrl, tokenPath: "token" },
-    http: { json: "strict" },
+    auth: { tokenHost, tokenPath: "token" },
+    // `true` (not "strict"): JSON responses are still parsed, but a non-JSON
+    // error body (e.g. an HTML 500 page) is kept so the status and body can be
+    // reported instead of a generic content-type error.
+    http: { json: true },
   });
-  const token = await client.getToken({ scope: creds.scope.split(" ") });
+
+  let token;
+  try {
+    token = await client.getToken({ scope: creds.scope.split(" ") });
+  } catch (err) {
+    const e = err as Error & { data?: { payload?: unknown } };
+    const detail = payloadDetail(e.data?.payload);
+    console.error(`[freepbx] token request to ${tokenUrl} failed: ${e.message}${detail ? ` — ${detail}` : ""}`);
+    throw new Error(
+      `FreePBX token request to ${tokenUrl} failed: ${e.message}${detail ? ` — ${detail}` : ""}`,
+    );
+  }
   const accessToken = (token.token as { access_token?: string }).access_token;
-  if (!accessToken) throw new Error("FreePBX did not return an access token");
+  if (!accessToken) throw new Error(`FreePBX did not return an access token (${tokenUrl})`);
   return accessToken;
 }
 
