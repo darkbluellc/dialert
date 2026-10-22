@@ -23,14 +23,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <Link href="/" className="text-lg font-bold tracking-tight text-brand">
                   Di<span className="text-slate-900">ALERT</span>
                 </Link>
-                <form action="/api/logout" method="post">
-                  <button
-                    className="text-sm text-slate-500 hover:text-slate-900"
-                    type="submit"
-                  >
-                    Sign out
-                  </button>
-                </form>
+                <div className="flex items-center gap-4">
+                  <Link href="/settings" className="text-sm text-slate-500 hover:text-slate-900">
+                    Settings
+                  </Link>
+                  <form action="/api/logout" method="post">
+                    <button
+                      className="text-sm text-slate-500 hover:text-slate-900"
+                      type="submit"
+                    >
+                      Sign out
+                    </button>
+                  </form>
+                </div>
               </div>
             </header>
           )}
