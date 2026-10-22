@@ -9,6 +9,7 @@ import PreviewPanel from "@/components/PreviewPanel";
 import {
   applyNowAction,
   pollNowAction,
+  setEnabledAction,
   deleteSystemAction,
   regenerateTriggerTokenAction,
 } from "@/app/systems/actions";
@@ -61,27 +62,46 @@ export default async function SystemPage({
           </div>
           {system.description && <p className="text-sm text-slate-500">{system.description}</p>}
         </div>
-        <Link href={`/systems/${system.slug}/edit`} className="btn-secondary">
-          Edit
-        </Link>
+        <div className="flex items-center gap-2">
+          <form action={setEnabledAction}>
+            <input type="hidden" name="id" value={system.id} />
+            <input type="hidden" name="enabled" value={system.enabled ? "false" : "true"} />
+            <button className={system.enabled ? "btn-secondary" : "btn-primary"} type="submit">
+              {system.enabled ? "Disable" : "Enable"}
+            </button>
+          </form>
+          <Link href={`/systems/${system.slug}/edit`} className="btn-secondary">
+            Edit
+          </Link>
+        </div>
       </div>
+
+      {!system.enabled && (
+        <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <strong>This system is disabled.</strong> DiALERT won&rsquo;t poll its schedule, accept
+          push triggers, or change its ring groups &mdash; they stay as last applied in FreePBX.
+          Enable it to resume.
+        </div>
+      )}
 
       {/* Actions */}
       <div className="card flex flex-wrap items-center gap-3">
         <form action={applyNowAction}>
           <input type="hidden" name="id" value={system.id} />
-          <button className="btn-primary" type="submit">
+          <button className="btn-primary" type="submit" disabled={!system.enabled}>
             Apply now
           </button>
         </form>
         <form action={pollNowAction}>
           <input type="hidden" name="id" value={system.id} />
-          <button className="btn-secondary" type="submit">
+          <button className="btn-secondary" type="submit" disabled={!system.enabled}>
             Poll now
           </button>
         </form>
         <span className="text-xs text-slate-500">
-          Apply forces a push; Poll only pushes if the schedule changed.
+          {system.enabled
+            ? "Apply forces a push; Poll only pushes if the schedule changed."
+            : "Pushing is off while the system is disabled. Preview still works."}
         </span>
       </div>
 

@@ -99,10 +99,12 @@ export async function deleteSystemAction(form: FormData): Promise<void> {
   redirect("/");
 }
 
+// A disabled system is hands-off: no polling, push triggers, or manual pushes.
+// Its ring groups stay as last applied in FreePBX.
 export async function applyNowAction(form: FormData): Promise<void> {
   const id = String(form.get("id") ?? "");
   const system = await prisma.system.findUnique({ where: { id } });
-  if (system) await applySystem(system, "manual", { force: true });
+  if (system?.enabled) await applySystem(system, "manual", { force: true });
   revalidatePath(`/systems/${system?.slug ?? ""}`);
   revalidatePath("/");
 }
@@ -110,8 +112,17 @@ export async function applyNowAction(form: FormData): Promise<void> {
 export async function pollNowAction(form: FormData): Promise<void> {
   const id = String(form.get("id") ?? "");
   const system = await prisma.system.findUnique({ where: { id } });
-  if (system) await applySystem(system, "manual", { force: false });
+  if (system?.enabled) await applySystem(system, "manual", { force: false });
   revalidatePath(`/systems/${system?.slug ?? ""}`);
+  revalidatePath("/");
+}
+
+/** Enable or disable a system (the scheduler picks this up within ~30s). */
+export async function setEnabledAction(form: FormData): Promise<void> {
+  const id = String(form.get("id") ?? "");
+  const enabled = form.get("enabled") === "true";
+  const system = await prisma.system.update({ where: { id }, data: { enabled } });
+  revalidatePath(`/systems/${system.slug}`);
   revalidatePath("/");
 }
 
